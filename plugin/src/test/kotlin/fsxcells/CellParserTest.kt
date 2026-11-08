@@ -65,9 +65,20 @@ class CellParserTest {
             2
             """
         )
-        assertEquals(Cell(0, 1, 1, null), cells[0])
+        assertEquals(Cell(0, 1, 1, null, endLine = 3), cells[0])
         assertTrue(cells[1].isEmpty)
         assertEquals(Cell(6, 7, 7, null), cells[2])
+    }
+
+    @Test
+    fun `blank lines after a cell's code still belong to that cell`() {
+        // 0: // %%   1: 1   2: (blank)   3: // %%   4: (blank)   5: (blank)
+        val cells = CellParser.parse(listOf("// %%", "1", "", "// %%", "", ""))
+        assertEquals(cells[0], CellParser.cellAt(cells, 2))
+        // An empty cell: the caret on its blank lines is in that cell (so Shift+Enter can move on from it).
+        assertTrue(cells[1].isEmpty)
+        assertEquals(cells[1], CellParser.cellAt(cells, 4))
+        assertEquals(cells[1], CellParser.cellAt(cells, 5))
     }
 
     @Test

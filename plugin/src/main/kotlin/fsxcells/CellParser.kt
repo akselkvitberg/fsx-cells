@@ -6,14 +6,23 @@ package fsxcells
  * @property markerLine 0-based line of the `(* cell *)` / `// %%` marker, or -1 for the implicit first cell
  *                      (text before the first marker).
  * @property firstLine  0-based first line of the cell body (the line after the marker).
- * @property lastLine   0-based last line of the cell body (inclusive). Can be < [firstLine] for an empty cell.
+ * @property lastLine   0-based last line of code (inclusive), with trailing blank lines left out: the output block
+ *                      goes under it. Can be < [firstLine] for an empty cell.
  * @property title      Optional title written after `%%` (e.g. `// %% Part 1`).
+ * @property endLine    0-based last line of the cell including trailing blank lines (the line before the next
+ *                      marker, or the last line of the file). Decides which cell the caret is in.
  */
-data class Cell(val markerLine: Int, val firstLine: Int, val lastLine: Int, val title: String?) {
+data class Cell(
+    val markerLine: Int,
+    val firstLine: Int,
+    val lastLine: Int,
+    val title: String?,
+    val endLine: Int = lastLine,
+) {
     val isEmpty: Boolean get() = lastLine < firstLine
 
-    /** True if [line] belongs to this cell, including its marker line. */
-    fun contains(line: Int): Boolean = line in (if (markerLine >= 0) markerLine else firstLine)..lastLine
+    /** True if [line] belongs to this cell: its marker line, code, or the blank lines after it. */
+    fun contains(line: Int): Boolean = line in (if (markerLine >= 0) markerLine else firstLine)..maxOf(endLine, lastLine)
 }
 
 object CellParser {
@@ -54,6 +63,6 @@ object CellParser {
     private fun trim(cell: Cell, lines: List<String>): Cell {
         var last = cell.lastLine
         while (last >= cell.firstLine && lines[last].isBlank()) last--
-        return cell.copy(lastLine = last)
+        return cell.copy(lastLine = last, endLine = cell.lastLine)
     }
 }
