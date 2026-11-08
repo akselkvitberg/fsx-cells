@@ -7,6 +7,8 @@ open System.Text
 
 /// Points grids larger than this many cells fall back to %A.
 let maxGridCells = 4_000_000
+/// Points grids wider or taller than this fall back to %A, so sparse coordinates don't become huge lines.
+let maxGridSide = 2_000
 /// Point sequences with more items than this fall back to %A (also guards infinite seqs).
 let maxPoints = 1_000_000
 
@@ -55,7 +57,7 @@ let private renderCells (cells: IReadOnlyCollection<struct (int * int * char)>) 
             maxY <- max maxY y
         let w = int64 maxX - int64 minX + 1L
         let h = int64 maxY - int64 minY + 1L
-        if w * h > int64 maxGridCells then
+        if w * h > int64 maxGridCells || w > int64 maxGridSide || h > int64 maxGridSide then
             None
         else
             let grid = Array.init (int h) (fun _ -> Array.create (int w) empty)
@@ -108,7 +110,15 @@ let formatValue (value: obj) (ty: Type) : string option =
             | :? (string list) as l -> Some(joinLines l)
             | :? Map<int * int, char> as m -> charMapGrid m
             | :? seq<int * int> as points when isPointCollectionType ty || isPointCollectionType (value.GetType()) ->
-                pointGrid points
+                match value with
+                // In-memory collections can safely be enumerated again by %A if the grid doesn't fit.
+                | :? IReadOnlyCollection<int * int> -> pointGrid points
+                | _ ->
+                    // A lazy seq: enumerate it once (bounded), so side effects and work happen only once.
+                    let items = points |> Seq.truncate (maxPoints + 1) |> Seq.toArray
+                    match pointGrid items with
+                    | Some grid -> Some grid
+                    | None -> Some(formatA (box items) typeof<(int * int)[]>)
             | _ -> None
         match special with
         | Some s -> Some s

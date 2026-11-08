@@ -1,5 +1,6 @@
 package fsxcells
 
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.RangeMarker
@@ -20,26 +21,57 @@ import com.intellij.ui.JBColor
 import java.awt.Color
 
 /**
- * Tracks the output block of each cell in an editor. A cell is identified by a range marker at the start
- * of its marker line (or offset 0 for the first cell), so the link survives edits elsewhere in the file.
+ * Identifies a cell across edits. A marker cell is tracked by a range marker over its whole marker line: inserting
+ * text before the line (even right at its start) moves the range with it. The first cell has no marker line; it is
+ * always "the text before the first marker".
  */
+class CellKey private constructor(private val marker: RangeMarker?) {
+    val isFirstCell: Boolean get() = marker == null
+    val isValid: Boolean get() = marker == null || marker.isValid
+
+    /** The cell this key refers to now, or null if its marker line is gone. */
+    fun resolve(document: Document): Cell? {
+        val cells = CellParser.parse(document.charsSequence)
+        if (marker == null) return cells.firstOrNull { it.markerLine < 0 }
+        if (!marker.isValid) return null
+        val line = document.getLineNumber(marker.startOffset)
+        return cells.firstOrNull { it.markerLine == line }
+    }
+
+    fun matches(document: Document, cell: Cell): Boolean =
+        if (cell.markerLine < 0) marker == null
+        else marker != null && marker.isValid && marker.startOffset == document.getLineStartOffset(cell.markerLine)
+
+    fun dispose() {
+        marker?.dispose()
+    }
+
+    companion object {
+        fun of(document: Document, cell: Cell): CellKey =
+            if (cell.markerLine < 0) CellKey(null)
+            else CellKey(document.createRangeMarker(document.getLineStartOffset(cell.markerLine), document.getLineEndOffset(cell.markerLine)))
+    }
+}
+
+/** Tracks the output block of each cell in an editor. */
 class CellOutputs private constructor(private val editor: Editor) {
     private class Entry(
-        val anchor: RangeMarker,
+        val key: CellKey,
         var inlay: Inlay<*>,
         var block: OutputBlock,
         val highlighters: MutableList<RangeHighlighter> = mutableListOf(),
     )
 
     private val entries = mutableListOf<Entry>()
+    private val document get() = editor.document
 
     /**
-     * Replaces the output block of the cell starting at [cellStartOffset]; the block goes under [lastLineEndOffset].
-     * When [result] is given, its errors are underlined in the script.
+     * Replaces the output block of [cell]. When [result] is given, its errors are underlined in the script
+     * (callers pass it only if the document hasn't changed since the cell was sent, so line numbers still match).
      */
-    fun show(cellStartOffset: Int, lastLineEndOffset: Int, output: CellOutput, result: EvalResult? = null) {
+    fun show(cell: Cell, output: CellOutput, result: EvalResult? = null) {
         val editorEx = editor as? EditorEx ?: return
-        val existing = find(cellStartOffset)
+        val existing = find(cell)
         if (existing != null) removeHighlighters(existing)
 
         // Add the new block before removing the old one. Removing first makes the document briefly shorter; when the
@@ -54,45 +86,47 @@ class CellOutputs private constructor(private val editor: Editor) {
                 /* relatesToPrecedingText = */ true,
                 /* showAbove = */ false,
                 /* priority = */ 0,
-                /* offset = */ lastLineEndOffset,
+                /* offset = */ blockOffset(cell),
             ),
         )
         if (existing != null) Disposer.dispose(existing.inlay)
         if (inlay == null) {
-            if (existing != null) { existing.anchor.dispose(); entries.remove(existing) }
+            if (existing != null) { existing.key.dispose(); entries.remove(existing) }
             return
         }
 
         val entry = existing?.also { it.inlay = inlay; it.block = block }
-            ?: Entry(editor.document.createRangeMarker(cellStartOffset, cellStartOffset), inlay, block).also { entries += it }
+            ?: Entry(CellKey.of(document, cell), inlay, block).also { entries += it }
         if (result != null) addErrorHighlights(entry, result)
     }
 
     /**
-     * Shows that the cell starting at [cellStartOffset] is running. An existing block stays where it is (dimmed,
-     * "running…"), so the editor doesn't jump; a cell without output gets a small "running…" block.
+     * Shows that [cell] is running and returns its block. An existing block stays where it is (dimmed, "running…"),
+     * so the editor doesn't jump; a cell without output gets a small "running…" block.
      */
-    fun markRunning(cellStartOffset: Int, lastLineEndOffset: Int) {
-        val existing = find(cellStartOffset)
-        if (existing != null) existing.block.running = true
-        else show(cellStartOffset, lastLineEndOffset, OutputFormatter.running())
+    fun markRunning(cell: Cell): OutputBlock? {
+        find(cell)?.let { it.block.running = true; return it.block }
+        show(cell, OutputFormatter.running())
+        return find(cell)?.block
     }
 
     /** Greys out the output of the cell containing [offset] (called after an edit). */
     fun markStaleAt(offset: Int) {
         if (entries.isEmpty()) return
-        val document = editor.document
-        val cells = CellParser.parse(document.charsSequence)
-        val cell = CellParser.cellAt(cells, document.getLineNumber(offset.coerceIn(0, document.textLength))) ?: return
-        val start = if (cell.markerLine >= 0) document.getLineStartOffset(cell.markerLine) else 0
-        entries.firstOrNull { it.anchor.isValid && it.anchor.startOffset == start }?.block?.stale = true
+        // Walk back to the cell's marker line instead of parsing the whole document on every keystroke.
+        var line = document.getLineNumber(offset.coerceIn(0, document.textLength))
+        while (line >= 0 && !CellParser.isMarker(lineText(line).toString())) line--
+        val entry =
+            if (line < 0) entries.firstOrNull { it.key.isFirstCell }
+            else entries.firstOrNull { !it.key.isFirstCell && it.key.matches(document, Cell(line, line + 1, line, null)) }
+        entry?.block?.stale = true
     }
 
-    /** The output shown for the cell starting at [cellStartOffset], if any. */
-    fun outputAt(cellStartOffset: Int): CellOutput? = find(cellStartOffset)?.block?.content
+    /** The output shown for [cell], if any. */
+    fun outputAt(cell: Cell): CellOutput? = find(cell)?.block?.content
 
     fun clearAll() {
-        entries.forEach { Disposer.dispose(it.inlay); removeHighlighters(it); it.anchor.dispose() }
+        entries.forEach { Disposer.dispose(it.inlay); removeHighlighters(it); it.key.dispose() }
         entries.clear()
     }
 
@@ -103,11 +137,20 @@ class CellOutputs private constructor(private val editor: Editor) {
         FileEditorManager.getInstance(project).openFile(file, true)
     }
 
-    private fun find(cellStartOffset: Int): Entry? {
-        val dead = entries.filter { !it.anchor.isValid || !it.inlay.isValid }
-        dead.forEach { Disposer.dispose(it.inlay); removeHighlighters(it); it.anchor.dispose() }
+    /** The block goes under the cell's last line (or its marker line, for an empty cell). */
+    private fun blockOffset(cell: Cell): Int {
+        val line = if (cell.isEmpty) maxOf(cell.markerLine, 0) else cell.lastLine
+        return document.getLineEndOffset(line.coerceAtMost(document.lineCount - 1))
+    }
+
+    private fun lineText(line: Int): CharSequence =
+        document.charsSequence.subSequence(document.getLineStartOffset(line), document.getLineEndOffset(line))
+
+    private fun find(cell: Cell): Entry? {
+        val dead = entries.filter { !it.key.isValid || !it.inlay.isValid }
+        dead.forEach { Disposer.dispose(it.inlay); removeHighlighters(it); it.key.dispose() }
         entries.removeAll(dead)
-        return entries.firstOrNull { it.anchor.startOffset == cellStartOffset }
+        return entries.firstOrNull { it.key.matches(document, cell) }
     }
 
     private fun removeHighlighters(entry: Entry) {
@@ -117,8 +160,7 @@ class CellOutputs private constructor(private val editor: Editor) {
 
     /** Wavy underlines for compile errors in this script, and for the script line a runtime exception came from. */
     private fun addErrorHighlights(entry: Entry, result: EvalResult) {
-        val scriptPath = FileDocumentManager.getInstance().getFile(editor.document)?.path ?: return
-        val document = editor.document
+        val scriptPath = FileDocumentManager.getInstance().getFile(document)?.path ?: return
 
         fun lineStart(line1: Int) = document.getLineStartOffset((line1 - 1).coerceIn(0, document.lineCount - 1))
         fun add(start: Int, end: Int, message: String, color: Color) {
@@ -153,7 +195,7 @@ class CellOutputs private constructor(private val editor: Editor) {
         val frame = STACK_LINE.findAll(error).firstOrNull { samePath(it.groupValues[1], scriptPath) } ?: return
         val line = frame.groupValues[2].toInt() - 1
         if (line !in 0 until document.lineCount) return
-        val text = document.charsSequence.subSequence(document.getLineStartOffset(line), document.getLineEndOffset(line))
+        val text = lineText(line)
         val indent = text.indexOfFirst { !it.isWhitespace() }.coerceAtLeast(0)
         add(document.getLineStartOffset(line) + indent, document.getLineEndOffset(line), error.lineSequence().first(), ERROR)
     }

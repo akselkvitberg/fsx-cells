@@ -49,6 +49,19 @@ module FormattingTests =
         Assert.Equal(expected, fmt (Seq.ofList [ (0, 0); (2, 1) ]))
 
     [<Fact>]
+    let ``sparse points that would make a huge grid fall back to %A`` () =
+        let text = fmt (set [ (0, 0); (3_000_000, 0) ])
+        Assert.Equal(Some "set [(0, 0); (3000000, 0)]", text)
+
+    [<Fact>]
+    let ``a lazy seq of points is enumerated once`` () =
+        let mutable count = 0
+        let points = seq { for i in 0 .. 2 do count <- count + 1; yield (i * 5000, 0) }  // too wide for a grid
+        let text = fmt points
+        Assert.Equal(3, count)
+        Assert.True(text.IsSome && text.Value.Contains "10000")
+
+    [<Fact>]
     let ``empty set of points falls back to %A`` () =
         Assert.Equal(Some "set []", fmt (Set.empty<int * int>))
 

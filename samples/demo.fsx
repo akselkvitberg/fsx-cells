@@ -1,5 +1,10 @@
+// %%
+let x = 1
+
+// %%
 // fsx-cells demo. Put the caret in a cell and press Ctrl+Enter.
-// The whole file also runs as a normal script (up to the deliberate error cell):  dotnet fsi samples/demo.fsx
+// The whole
+// file also runs as a normal script (up to the deliberate error cell):  dotnet fsi samples/demo.fsx
 
 let input = """
 ..#..
@@ -8,12 +13,24 @@ let input = """
 ..#..
 """
 
+// %%
+
+// %%
+
+
+
+
 // %% Parse into a grid
 let grid =
     input.Trim().Split('\n')
+    
     |> Array.map (fun l -> l.Trim().ToCharArray())
 
 grid
+
+// %%
+
+// %%
 
 (* cell *)
 // A set of (x, y) points is drawn as a grid

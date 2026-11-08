@@ -19,10 +19,20 @@
                     text="Run Cell" description="Run the F# cell under the caret">
                 <keyboard-shortcut keymap="$default" first-keystroke="control ENTER"/>
             </action>
-            <action id="FsxCells.RunCellsUpToHere" class="fsxcells.RunCellsUpToHereAction"
-                    text="Run Cells Up to Here" description="Run all cells from the top of the file to the one under the caret">
+            <action id="FsxCells.RunCellAndAdvance" class="fsxcells.RunCellAndAdvanceAction"
+                    text="Run Cell and Go to Next"
+                    description="Run the cell under the caret and move to the next cell (adds one after the last cell)">
+                <keyboard-shortcut keymap="$default" first-keystroke="shift ENTER"/>
+            </action>
+            <action id="FsxCells.RunCellAndAddBelow" class="fsxcells.RunCellAndAddBelowAction"
+                    text="Run Cell and Add Cell Below"
+                    description="Run the cell under the caret, then add an empty cell below it and move the caret there">
                 <keyboard-shortcut keymap="$default" first-keystroke="control shift ENTER"/>
             </action>
+            <action id="FsxCells.RunCellsUpToHere" class="fsxcells.RunCellsUpToHereAction"
+                    text="Run Cells Up to Here" description="Run all cells from the top of the file to the one under the caret"/>
+            <action id="FsxCells.RunAllCells" class="fsxcells.RunAllCellsAction"
+                    text="Run All Cells" description="Run every cell in the file, stopping at the first failure"/>
             <action id="FsxCells.RestartSession" class="fsxcells.RestartSessionAction"
                     text="Restart F# Session" description="Stop this file's F# session and clear its output"/>
             <action id="FsxCells.OpenOutputInTab" class="fsxcells.OpenOutputInTabAction"
@@ -34,5 +44,6 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <editorFactoryListener implementation="fsxcells.FsxEditorListener"/>
+        <actionPromoter implementation="fsxcells.FsxActionPromoter"/>
     </extensions>
 </idea-plugin>

@@ -14,8 +14,13 @@ grid.Length
 - Cells start at a `// %%` line (optionally with a title, `// %% Part 1`) or a `(* cell *)` line.
   Text before the first marker is a cell too.
 - Files stay ordinary scripts: `dotnet fsi day01.fsx` runs the whole thing.
-- Ctrl+Enter runs the cell under the caret, Ctrl+Shift+Enter runs all cells up to it.
-  Each file has its own F# session; restart it from Tools > FSX Cells.
+- Shortcuts (in .fsx files only; elsewhere the keys keep their usual meaning):
+  - Ctrl+Enter: run the cell under the caret.
+  - Shift+Enter: run it and move to the next cell (on the last cell, add a new one).
+  - Ctrl+Shift+Enter: run it and add a new cell below.
+- Each cell has a toolbar above it (Run cell, Run up to here, Add cell above) and a run icon in the gutter;
+  right-click the icon for Run All Cells, Add Cell Below and more.
+- Each file has its own F# session, stopped when you close the file; restart it from Tools > FSX Cells.
 
 ## Layout
 

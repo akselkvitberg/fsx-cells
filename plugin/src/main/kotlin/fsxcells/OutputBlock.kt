@@ -125,6 +125,12 @@ class OutputBlock(
         repaint()
     }
 
+    /** Width of the widest line. Measured once: the content and font don't change, and layout asks for it often. */
+    private val textWidth: Int by lazy {
+        val metrics = textPane.getFontMetrics(textPane.font)
+        content.lines.maxOfOrNull { metrics.stringWidth(it.text) } ?: 0
+    }
+
     override fun getPreferredSize(): Dimension {
         val summaryHeight = summaryLabel.preferredSize.height
         // Computed from font metrics, not from the text pane's own preferred size: that one is wrong until the pane
@@ -133,8 +139,7 @@ class OutputBlock(
         val metrics = textPane.getFontMetrics(textPane.font)
         val textInsets = textPane.insets
         val lineHeight = metrics.height
-        val contentWidth = (content.lines.maxOfOrNull { metrics.stringWidth(it.text) } ?: 0) +
-            textInsets.left + textInsets.right + JBUI.scale(6)
+        val contentWidth = textWidth + textInsets.left + textInsets.right + JBUI.scale(6)
         val summaryWidth = summaryLabel.preferredSize.width
         val maxWidth = (editor.scrollingModel.visibleArea.width - JBUI.scale(40)).coerceAtLeast(JBUI.scale(300))
 

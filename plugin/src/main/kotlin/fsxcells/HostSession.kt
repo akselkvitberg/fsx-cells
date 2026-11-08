@@ -13,6 +13,7 @@ import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
 
 /** A compiler diagnostic. Lines are 1-based script lines, columns 0-based (see host/README.md). */
@@ -47,6 +48,12 @@ class HostSession(private val scriptPath: String) {
     private val process: Process
     private val stdin: OutputStreamWriter
 
+    /**
+     * Requests waiting to be written to the host. A writer thread drains it: the host only reads stdin between
+     * evaluations, so writing from the caller (the UI thread) would block it once the pipe buffer is full.
+     */
+    private val outbox = LinkedBlockingQueue<Pair<Int?, String>>()
+
     init {
         val command = hostCommand()
         log.info("Starting fsx-cells host: ${command.joinToString(" ")} for $scriptPath")
@@ -55,6 +62,7 @@ class HostSession(private val scriptPath: String) {
             .start()
         stdin = OutputStreamWriter(process.outputStream, StandardCharsets.UTF_8)
 
+        daemon("fsx-cells host stdin") { writeRequests() }
         daemon("fsx-cells host stdout") { readResponses() }
         daemon("fsx-cells host stderr") {
             BufferedReader(InputStreamReader(process.errorStream, StandardCharsets.UTF_8))
@@ -62,7 +70,7 @@ class HostSession(private val scriptPath: String) {
         }
         process.onExit().thenRun { failPending("The F# host process exited (code ${process.exitValue()}).") }
 
-        send(JsonObject().apply {
+        send(null, JsonObject().apply {
             addProperty("type", "init")
             addProperty("scriptPath", scriptPath)
         })
@@ -75,31 +83,41 @@ class HostSession(private val scriptPath: String) {
         val id = nextId.getAndIncrement()
         val future = CompletableFuture<EvalResult>()
         pending[id] = future
-        try {
-            send(JsonObject().apply {
-                addProperty("type", "eval")
-                addProperty("id", id)
-                addProperty("code", code)
-                addProperty("startLine", startLine)
-            })
-        } catch (e: Exception) {
-            pending.remove(id)
-            future.completeExceptionally(e)
-        }
+        send(id, JsonObject().apply {
+            addProperty("type", "eval")
+            addProperty("id", id)
+            addProperty("code", code)
+            addProperty("startLine", startLine)
+        })
         return future
     }
 
     fun dispose() {
-        failPending("The F# session was restarted.")
+        outbox.put(STOP)
+        failPending("The F# session was stopped.")
         process.toHandle().descendants().forEach { it.destroyForcibly() }
         process.destroyForcibly()
     }
 
-    @Synchronized
-    private fun send(json: JsonObject) {
-        stdin.write(gson.toJson(json))
-        stdin.write("\n")
-        stdin.flush()
+    /** Queues a request; never blocks. [id] is the eval id to fail if the write fails. */
+    private fun send(id: Int?, json: JsonObject) {
+        outbox.put(id to gson.toJson(json))
+    }
+
+    private fun writeRequests() {
+        while (true) {
+            val item = try { outbox.take() } catch (_: InterruptedException) { return }
+            if (item === STOP) return
+            val (id, line) = item
+            try {
+                stdin.write(line)
+                stdin.write("\n")
+                stdin.flush()
+            } catch (e: Exception) {
+                if (id != null) pending.remove(id)?.completeExceptionally(e)
+                if (!process.isAlive) return
+            }
+        }
     }
 
     private fun readResponses() {
@@ -159,6 +177,7 @@ class HostSession(private val scriptPath: String) {
     companion object {
         const val PLUGIN_ID = "fsxcells"
         const val HOST_ENV = "FSXCELLS_HOST"
+        private val STOP: Pair<Int?, String> = Pair(null, "")
 
         /** `dotnet <FsxCells.Host.dll>`. The DLL is bundled in the plugin; FSXCELLS_HOST overrides it for development. */
         fun hostCommand(): List<String> {

@@ -17,7 +17,8 @@ class HostSessionManager : Disposable {
             if (existing != null && existing.isAlive) existing else HostSession(path)
         }!!
 
-    fun restart(scriptPath: String) {
+    /** Stops the file's session (its state is lost); the next run starts a new one. */
+    fun stop(scriptPath: String) {
         sessions.remove(scriptPath)?.dispose()
     }
 
