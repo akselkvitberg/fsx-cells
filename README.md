@@ -51,3 +51,13 @@ dotnet fsi tools/dib2fsx.fsx <file.dib | folder> [--force]
 Writes a `.fsx` next to each `.dib`: F# cells become `// %%` cells, markdown becomes comments, other languages are
 commented out, and the `open`s Polyglot added automatically (`System`, `System.IO`, `System.Text`) are added at the
 top. Lines that use Polyglot-only APIs such as `display` are listed so you can fix them by hand.
+
+## Releases
+
+The `Build` workflow builds and tests on every push. To make a release, push a version tag; the workflow builds
+the plugin with that version and attaches the zip to a GitHub release (it isn't published to the Marketplace):
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
