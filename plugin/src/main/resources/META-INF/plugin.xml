@@ -25,16 +25,14 @@
             </action>
             <action id="FsxCells.RestartSession" class="fsxcells.RestartSessionAction"
                     text="Restart F# Session" description="Stop this file's F# session and clear its output"/>
+            <action id="FsxCells.OpenOutputInTab" class="fsxcells.OpenOutputInTabAction"
+                    text="Open Cell Output in Tab" description="Open the output of the cell under the caret in an editor tab"/>
             <action id="FsxCells.ClearOutputs" class="fsxcells.ClearOutputsAction"
                     text="Clear Cell Outputs" description="Remove all output blocks in this file"/>
-            <separator/>
-            <action id="FsxCells.SpikeInlay" class="fsxcells.SpikeInlayAction"
-                    text="Insert Test Output Block"
-                    description="Insert a hardcoded multi-line output block under the caret (renderer test)">
-                <keyboard-shortcut keymap="$default" first-keystroke="control alt shift O"/>
-            </action>
-            <action id="FsxCells.ClearSpikeInlays" class="fsxcells.ClearSpikeInlaysAction"
-                    text="Clear Test Output Blocks"/>
         </group>
     </actions>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <editorFactoryListener implementation="fsxcells.FsxEditorListener"/>
+    </extensions>
 </idea-plugin>

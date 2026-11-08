@@ -37,7 +37,7 @@ abstract class FsxAction : AnAction() {
 }
 
 object CellRunner {
-    private fun startOffset(editor: Editor, cell: Cell) =
+    fun startOffset(editor: Editor, cell: Cell) =
         if (cell.markerLine >= 0) editor.document.getLineStartOffset(cell.markerLine) else 0
 
     /** Runs [cell] in the file's session and shows the result under the cell. */
@@ -49,7 +49,7 @@ object CellRunner {
         val code = document.charsSequence.subSequence(document.getLineStartOffset(cell.firstLine), lastLineEnd).toString()
 
         val outputs = CellOutputs.of(editor)
-        outputs.show(cellStart, lastLineEnd, OutputFormatter.running())
+        outputs.markRunning(cellStart, lastLineEnd)
 
         // Track the cell's start through edits made while the code runs.
         val anchor = document.createRangeMarker(cellStart, cellStart)
@@ -58,7 +58,7 @@ object CellRunner {
             HostSessionManager.getInstance(project).sessionFor(file.path).eval(code, cell.firstLine + 1)
         } catch (e: Exception) {
             anchor.dispose()
-            outputs.show(cellStart, lastLineEnd, listOf(OutputLine(e.message ?: e.toString(), OutputLineKind.Error)))
+            outputs.show(cellStart, lastLineEnd, OutputFormatter.failure(e.message ?: e.toString()))
             return
         }
 
@@ -69,10 +69,10 @@ object CellRunner {
                     val cells = CellParser.parse(document.charsSequence)
                     val current = CellParser.cellAt(cells, document.getLineNumber(anchor.startOffset)) ?: return@invokeLater
                     val endLine = if (current.isEmpty) maxOf(current.markerLine, 0) else current.lastLine
-                    val lines =
-                        if (error != null) listOf(OutputLine(error.message ?: error.toString(), OutputLineKind.Error))
-                        else OutputFormatter.format(result)
-                    outputs.show(startOffset(editor, current), document.getLineEndOffset(endLine), lines)
+                    val start = startOffset(editor, current)
+                    val end = document.getLineEndOffset(endLine)
+                    if (error != null) outputs.show(start, end, OutputFormatter.failure(error.message ?: error.toString()))
+                    else outputs.show(start, end, OutputFormatter.format(result), result)
                 } finally {
                     anchor.dispose()
                 }
@@ -105,6 +105,16 @@ class RestartSessionAction : FsxAction() {
     override fun perform(project: Project, editor: Editor, file: VirtualFile) {
         HostSessionManager.getInstance(project).restart(file.path)
         CellOutputs.of(editor).clearAll()
+    }
+}
+
+/** Open the output of the cell under the caret in a read-only editor tab. */
+class OpenOutputInTabAction : FsxAction() {
+    override fun perform(project: Project, editor: Editor, file: VirtualFile) {
+        val cells = CellParser.parse(editor.document.charsSequence)
+        val cell = CellParser.cellAt(cells, editor.caretModel.logicalPosition.line) ?: return
+        val outputs = CellOutputs.of(editor)
+        outputs.outputAt(CellRunner.startOffset(editor, cell))?.let(outputs::openInTab)
     }
 }
 

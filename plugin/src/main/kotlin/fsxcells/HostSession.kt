@@ -15,6 +15,17 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
+/** A compiler diagnostic. Lines are 1-based script lines, columns 0-based (see host/README.md). */
+data class Diagnostic(
+    val startLine: Int,
+    val startCol: Int,
+    val endLine: Int,
+    val endCol: Int,
+    val severity: String,
+    val message: String,
+    val fileName: String,
+)
+
 /** Result of one cell evaluation, as sent by the host (see host/README.md). */
 data class EvalResult(
     val ok: Boolean,
@@ -23,6 +34,7 @@ data class EvalResult(
     val typeName: String?,
     val error: String?,
     val elapsedMs: Long,
+    val diagnostics: List<Diagnostic> = emptyList(),
 )
 
 /** One `FsxCells.Host` process, bound to one .fsx file. */
@@ -108,6 +120,18 @@ class HostSession(private val scriptPath: String) {
                         typeName = obj.string("typeName"),
                         error = obj.string("error"),
                         elapsedMs = obj.get("elapsedMs")?.asLong ?: 0,
+                        diagnostics = obj.getAsJsonArray("diagnostics")?.map { el ->
+                            val d = el.asJsonObject
+                            Diagnostic(
+                                startLine = d.get("startLine").asInt,
+                                startCol = d.get("startCol").asInt,
+                                endLine = d.get("endLine").asInt,
+                                endCol = d.get("endCol").asInt,
+                                severity = d.string("severity") ?: "error",
+                                message = d.string("message") ?: "",
+                                fileName = d.string("fileName") ?: "",
+                            )
+                        } ?: emptyList(),
                     )
                 )
             } catch (e: Exception) {

@@ -35,3 +35,19 @@ cd plugin
 ```
 
 Install the zip in your own Rider with Settings > Plugins > Install Plugin from Disk.
+
+## Output blocks
+
+Output appears under the cell as a block you can select and copy from (Ctrl+C, or right-click > Copy / Copy All /
+Open in Editor Tab). Blocks are at most 20 lines high and scroll beyond that. Editing a cell greys out its output
+until you run it again; compile errors and the script line a runtime exception came from get a wavy underline.
+
+## Converting Polyglot notebooks
+
+```bash
+dotnet fsi tools/dib2fsx.fsx <file.dib | folder> [--force]
+```
+
+Writes a `.fsx` next to each `.dib`: F# cells become `// %%` cells, markdown becomes comments, other languages are
+commented out, and the `open`s Polyglot added automatically (`System`, `System.IO`, `System.Text`) are added at the
+top. Lines that use Polyglot-only APIs such as `display` are listed so you can fix them by hand.
