@@ -1,0 +1,40 @@
+<idea-plugin>
+    <id>fsxcells</id>
+    <name>FSX Cells</name>
+    <vendor>Aksel Kvitberg</vendor>
+    <description><![CDATA[
+        Run comment-delimited cells (<code>(* cell *)</code> or <code>// %%</code>) of plain F# script files
+        with Ctrl+Enter and show the result directly under the cell.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.rider</depends>
+
+    <actions>
+        <group id="FsxCells.Group" text="FSX Cells" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+
+            <action id="FsxCells.RunCell" class="fsxcells.RunCellAction"
+                    text="Run Cell" description="Run the F# cell under the caret">
+                <keyboard-shortcut keymap="$default" first-keystroke="control ENTER"/>
+            </action>
+            <action id="FsxCells.RunCellsUpToHere" class="fsxcells.RunCellsUpToHereAction"
+                    text="Run Cells Up to Here" description="Run all cells from the top of the file to the one under the caret">
+                <keyboard-shortcut keymap="$default" first-keystroke="control shift ENTER"/>
+            </action>
+            <action id="FsxCells.RestartSession" class="fsxcells.RestartSessionAction"
+                    text="Restart F# Session" description="Stop this file's F# session and clear its output"/>
+            <action id="FsxCells.ClearOutputs" class="fsxcells.ClearOutputsAction"
+                    text="Clear Cell Outputs" description="Remove all output blocks in this file"/>
+            <separator/>
+            <action id="FsxCells.SpikeInlay" class="fsxcells.SpikeInlayAction"
+                    text="Insert Test Output Block"
+                    description="Insert a hardcoded multi-line output block under the caret (renderer test)">
+                <keyboard-shortcut keymap="$default" first-keystroke="control alt shift O"/>
+            </action>
+            <action id="FsxCells.ClearSpikeInlays" class="fsxcells.ClearSpikeInlaysAction"
+                    text="Clear Test Output Blocks"/>
+        </group>
+    </actions>
+</idea-plugin>
