@@ -107,7 +107,9 @@ type Session() =
     let fsi =
         lazy (
             // --gui-: no WinForms event loop (the default on Windows); evaluations run on our own thread.
-            let argv = [| "fsi.exe"; "--noninteractive"; "--quiet"; "--multiemit"; "--gui-" |]
+            // --langversion:preview: preview language features are always available.
+            let argv =
+                [| "fsi.exe"; "--noninteractive"; "--quiet"; "--multiemit"; "--gui-"; "--langversion:preview" |]
             let create config =
                 FsiEvaluationSession.Create(
                     config,

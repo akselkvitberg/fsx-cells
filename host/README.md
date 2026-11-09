@@ -143,6 +143,7 @@ These are set with F# Interactive's own settings, which also work in `dotnet fsi
 - Scripts get the SDK's `fsi` object, so `fsi.AddPrinter`, `fsi.PrintLength` and `fsi.CommandLineArgs` (the
   script path) work as in `dotnet fsi`. If it can't be set up, cells still run without it and the next cell's
   output says why.
-- Options: `--noninteractive --quiet --multiemit --gui-`.
+- Options: `--noninteractive --quiet --multiemit --gui- --langversion:preview`. Preview language features are
+  always on, so a script that uses them needs `dotnet fsi --langversion:preview` to run outside the plugin.
 - Evaluations run on a dedicated thread with a 256 MB stack, so deep recursion works.
 - `Console.Out` and `Console.Error` are swapped for a `StringWriter` during each evaluation.
