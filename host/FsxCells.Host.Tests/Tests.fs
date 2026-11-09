@@ -408,14 +408,37 @@ type SessionTests() =
         finally
             eval "fsi.PrintLength <- 100\nfsi.PrintDepth <- 100" 1 |> ignore
 
-module FsiSettingsAssemblyTests =
+module HostProcessTests =
+
+    open System.Diagnostics
+
+    /// The built host, next to this test project (same configuration).
+    let hostDll () =
+        let testDir = Path.GetDirectoryName(typeof<Person>.Assembly.Location)
+        let config = DirectoryInfo(testDir).Parent.Name // bin/<config>/net10.0
+        Path.GetFullPath(Path.Combine(testDir, "..", "..", "..", "..", "FsxCells.Host", "bin", config, "net10.0", "FsxCells.Host.dll"))
 
     [<Fact>]
-    let ``the fsi settings assembly is portable IL, not a platform-specific ReadyToRun image`` () =
-        // A ReadyToRun copy (as in the .NET SDK) only loads on the platform it was compiled for.
-        let path = typeof<FSharp.Compiler.Interactive.InteractiveSession>.Assembly.Location
-        Assert.Equal("FSharp.Compiler.Interactive.Settings.dll", Path.GetFileName path)
-        use stream = File.OpenRead path
-        use pe = new System.Reflection.PortableExecutable.PEReader(stream)
-        Assert.Equal(System.Reflection.PortableExecutable.Machine.I386, pe.PEHeaders.CoffHeader.Machine)
-        Assert.Equal(0, pe.PEHeaders.CorHeader.ManagedNativeHeaderDirectory.Size)
+    let ``the host process loads F# from the installed SDK and runs cells`` () =
+        let scriptPath = makeScriptDir ()
+        let info = ProcessStartInfo("dotnet", "\"" + hostDll () + "\"")
+        info.WorkingDirectory <- Path.GetDirectoryName scriptPath
+        info.RedirectStandardInput <- true
+        info.RedirectStandardOutput <- true
+        info.RedirectStandardError <- true
+        info.UseShellExecute <- false
+        use p = Process.Start info
+        p.StandardInput.WriteLine(sprintf """{"type":"init","scriptPath":%s}""" (Text.Json.JsonSerializer.Serialize scriptPath))
+        p.StandardInput.WriteLine("""{"type":"eval","id":1,"code":"typeof<int list>.Assembly.Location"}""")
+        p.StandardInput.WriteLine("""{"type":"eval","id":2,"code":"fsi.AddPrinter(fun (x: int) -> \"I\" + string x)\n[ {| N = 1 |} ]"}""")
+        p.StandardInput.Close()
+        let fsharpCore = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        let table = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        p.WaitForExit()
+        Assert.True(fsharpCore.GetProperty("ok").GetBoolean(), p.StandardError.ReadToEnd())
+        // .../sdk/<version>/FSharp/FSharp.Core.dll
+        let location = fsharpCore.GetProperty("valueText").GetString()
+        Assert.Equal("FSharp", Path.GetFileName(Path.GetDirectoryName location))
+        Assert.Equal("sdk", Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName location))))
+        Assert.Equal("# │ N\n──┼───\n0 │ I1", table.GetProperty("valueText").GetString())
+        Assert.Equal(0, p.ExitCode)

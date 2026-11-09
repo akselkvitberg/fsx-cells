@@ -4,6 +4,20 @@
 (`FsiEvaluationSession` from FSharp.Compiler.Service) and runs cells of a single `.fsx` file.
 The Rider plugin starts one host process per `.fsx` file and talks to it over stdin/stdout.
 
+## The F# compiler comes from the installed SDK
+
+The host doesn't ship an F# compiler. At startup it runs `dotnet --version` in the script's folder (so
+`global.json` applies, as for `dotnet fsi`) and loads FSharp.Compiler.Service, FSharp.Core and
+FSharp.Compiler.Interactive.Settings from that SDK's `sdk/<version>/FSharp` folder. New F# and .NET versions
+work without a new host; the host runs on the newest installed .NET (`RollForward=LatestMajor`).
+
+- It is compiled against FSharp.Compiler.Service 43.10.100 and FSharp.Core 10.0.100 (the .NET 10.0.100 SDK) and
+  uses a small part of the compiler API. An SDK whose compiler changed that part breaks the host until it is
+  updated.
+- `Sdk.fs` installs the assembly resolver as the first thing `main` does, before any F# library code runs.
+- Set `FSXCELLS_FSHARP_DIR` to a folder with FSharp.Compiler.Service.dll and FSharp.Core.dll to use those instead.
+- Without a usable SDK the host prints why to stderr and exits with code 2; the plugin shows that message.
+
 ```bash
 dotnet build host/FsxCells.Host
 dotnet test host/FsxCells.Host.Tests
@@ -126,11 +140,9 @@ These are set with F# Interactive's own settings, which also work in `dotnet fsi
 
 ## Session details
 
-- Scripts get an `fsi` object, so `fsi.AddPrinter`, `fsi.PrintLength` and `fsi.CommandLineArgs` (the script
-  path) work as in `dotnet fsi`. It comes from `FsxCells.FsiSettings`, our own build of F#'s
-  `FSharp.Compiler.Interactive.Settings` assembly (same name and API). The .NET SDK's copy can't be shipped: it's
-  precompiled for the SDK's own platform. If the object can't be set up anyway, cells still run without it and
-  the next cell's output says why.
+- Scripts get the SDK's `fsi` object, so `fsi.AddPrinter`, `fsi.PrintLength` and `fsi.CommandLineArgs` (the
+  script path) work as in `dotnet fsi`. If it can't be set up, cells still run without it and the next cell's
+  output says why.
 - Options: `--noninteractive --quiet --multiemit --gui-`.
 - Evaluations run on a dedicated thread with a 256 MB stack, so deep recursion works.
 - `Console.Out` and `Console.Error` are swapped for a `StringWriter` during each evaluation.

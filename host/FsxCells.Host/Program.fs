@@ -6,8 +6,9 @@ open System.Text
 open FsxCells.Host.Protocol
 open FsxCells.Host.Session
 
-[<EntryPoint>]
-let main _ =
+/// The protocol loop. Kept out of `main` so nothing here loads FSharp.Core before the SDK resolver is installed.
+[<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)>]
+let private run () =
     let utf8 = UTF8Encoding(false)
     // The protocol owns the real stdout. Anything else that writes to Console.Out outside an
     // evaluation (e.g. a background thread started by user code) goes to stderr instead.
@@ -45,3 +46,15 @@ let main _ =
 
     loop ()
     0
+
+[<EntryPoint>]
+let main _ =
+    // First, before any F# library code runs: load the F# compiler and FSharp.Core from the installed SDK.
+    // (So only .NET calls here: even `exit` and `printfn` live in FSharp.Core.)
+    let mutable sdkReady = true
+    try
+        Sdk.useFSharpFrom (Sdk.fsharpDir ())
+    with e ->
+        Console.Error.WriteLine("fsx-cells host: can't use the installed .NET SDK's F#: " + e.Message)
+        sdkReady <- false
+    if sdkReady then run () else 2

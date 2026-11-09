@@ -116,14 +116,16 @@ type Session() =
                     new ForwardingWriter(fun () -> Console.Out),
                     new ForwardingWriter(fun () -> Console.Error),
                     collectible = false)
-            // The script's `fsi` object (FSharp.Compiler.Interactive.Settings, published next to the host), so
-            // fsi.AddPrinter, fsi.PrintLength and friends work as in dotnet fsi, and formatting can read them.
-            // In its own function so that a failure to load that assembly is caught below.
+            // The script's `fsi` object, from the FSharp.Compiler.Interactive.Settings next to the compiler (the
+            // SDK's), which FSI also references for scripts. fsi.AddPrinter, fsi.PrintLength and friends then work
+            // as in dotnet fsi, and formatting can read them. In its own function so failures are caught below.
             let withFsiObject () =
-                let config = FsiEvaluationSession.GetDefaultConfiguration(FSharp.Compiler.Interactive.Settings.fsi, true)
+                let settings = Assembly.LoadFrom(Path.Combine(Sdk.loadedFSharpDir (), "FSharp.Compiler.Interactive.Settings.dll"))
+                let fsiObject = settings.GetType("FSharp.Compiler.Interactive.Settings", true).GetProperty("fsi").GetValue(null)
+                let config = FsiEvaluationSession.GetDefaultConfiguration(fsiObject, true)
                 let session = create config
                 // As in `dotnet fsi script.fsx`: the script path is the only argument. (Create sets it to argv.)
-                FSharp.Compiler.Interactive.Settings.fsi.CommandLineArgs <- [| scriptPath |]
+                fsiObject.GetType().GetProperty("CommandLineArgs").SetValue(fsiObject, [| scriptPath |])
                 Formatting.fsiConfig <- Some config
                 session
             try

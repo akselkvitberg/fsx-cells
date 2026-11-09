@@ -20,15 +20,15 @@ dependencies {
 
 // Publish the F# host and bundle it into the plugin under <plugin>/host.
 val hostProject = layout.projectDirectory.dir("../host/FsxCells.Host")
-val fsiSettingsProject = layout.projectDirectory.dir("../host/FsxCells.FsiSettings")
 val hostOutput = layout.buildDirectory.dir("host")
 
 val publishHost by tasks.registering(Exec::class) {
     inputs.files(fileTree(hostProject) { exclude("bin/**", "obj/**") })
         .withPathSensitivity(PathSensitivity.RELATIVE)
-    inputs.files(fileTree(fsiSettingsProject) { exclude("bin/**", "obj/**") })
-        .withPathSensitivity(PathSensitivity.RELATIVE)
     outputs.dir(hostOutput)
+    // `dotnet publish -o` doesn't remove files from earlier builds, which would then be bundled too.
+    val outputDir = hostOutput.get().asFile
+    doFirst { outputDir.deleteRecursively() }
     commandLine(
         "dotnet", "publish", hostProject.asFile.absolutePath,
         "-c", "Release", "-o", hostOutput.get().asFile.absolutePath, "--nologo",
