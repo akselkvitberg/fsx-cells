@@ -407,3 +407,38 @@ type SessionTests() =
             Assert.Equal(Some "Nd\n  Next: Nd", d.ValueText)
         finally
             eval "fsi.PrintLength <- 100\nfsi.PrintDepth <- 100" 1 |> ignore
+
+module HostProcessTests =
+
+    open System.Diagnostics
+
+    /// The built host, next to this test project (same configuration).
+    let hostDll () =
+        let testDir = Path.GetDirectoryName(typeof<Person>.Assembly.Location)
+        let config = DirectoryInfo(testDir).Parent.Name // bin/<config>/net10.0
+        Path.GetFullPath(Path.Combine(testDir, "..", "..", "..", "..", "FsxCells.Host", "bin", config, "net10.0", "FsxCells.Host.dll"))
+
+    [<Fact>]
+    let ``the host process loads F# from the installed SDK and runs cells`` () =
+        let scriptPath = makeScriptDir ()
+        let info = ProcessStartInfo("dotnet", "\"" + hostDll () + "\"")
+        info.WorkingDirectory <- Path.GetDirectoryName scriptPath
+        info.RedirectStandardInput <- true
+        info.RedirectStandardOutput <- true
+        info.RedirectStandardError <- true
+        info.UseShellExecute <- false
+        use p = Process.Start info
+        p.StandardInput.WriteLine(sprintf """{"type":"init","scriptPath":%s}""" (Text.Json.JsonSerializer.Serialize scriptPath))
+        p.StandardInput.WriteLine("""{"type":"eval","id":1,"code":"typeof<int list>.Assembly.Location"}""")
+        p.StandardInput.WriteLine("""{"type":"eval","id":2,"code":"fsi.AddPrinter(fun (x: int) -> \"I\" + string x)\n[ {| N = 1 |} ]"}""")
+        p.StandardInput.Close()
+        let fsharpCore = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        let table = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        p.WaitForExit()
+        Assert.True(fsharpCore.GetProperty("ok").GetBoolean(), p.StandardError.ReadToEnd())
+        // .../sdk/<version>/FSharp/FSharp.Core.dll
+        let location = fsharpCore.GetProperty("valueText").GetString()
+        Assert.Equal("FSharp", Path.GetFileName(Path.GetDirectoryName location))
+        Assert.Equal("sdk", Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName location))))
+        Assert.Equal("# │ N\n──┼───\n0 │ I1", table.GetProperty("valueText").GetString())
+        Assert.Equal(0, p.ExitCode)

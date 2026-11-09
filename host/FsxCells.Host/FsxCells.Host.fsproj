@@ -3,32 +3,26 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
+    <!-- Run on the newest installed .NET, so the F# compiler of a newer SDK can load. -->
+    <RollForward>LatestMajor</RollForward>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <!-- The compiler's translations come from the SDK too. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Sdk.fs" />
     <Compile Include="Protocol.fs" />
     <Compile Include="Formatting.fs" />
     <Compile Include="Session.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
+  <!-- Compiled against the oldest .NET 10 releases, but not shipped: at run time they are loaded from the installed
+       .NET SDK (see Sdk.fs), which can be any newer version. -->
   <ItemGroup>
-    <PackageReference Include="FSharp.Compiler.Service" Version="43.12.403" />
+    <PackageReference Include="FSharp.Core" Version="10.0.100" ExcludeAssets="runtime" />
+    <PackageReference Include="FSharp.Compiler.Service" Version="43.10.100" ExcludeAssets="runtime" />
   </ItemGroup>
-
-  <!-- The `fsi` object scripts use (fsi.AddPrinter, fsi.PrintLength, fsi.CommandLineArgs, ...). It isn't on NuGet;
-       it ships with the .NET SDK, so take the building SDK's copy and publish it next to the host. -->
-  <PropertyGroup>
-    <FsiSettingsDll>$(MSBuildExtensionsPath)FSharp/FSharp.Compiler.Interactive.Settings.dll</FsiSettingsDll>
-  </PropertyGroup>
-  <ItemGroup>
-    <Reference Include="FSharp.Compiler.Interactive.Settings">
-      <HintPath>$(FsiSettingsDll)</HintPath>
-      <Private>true</Private>
-    </Reference>
-  </ItemGroup>
-  <Target Name="CheckFsiSettingsDll" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(FsiSettingsDll)')">
-    <Error Text="FSharp.Compiler.Interactive.Settings.dll not found at $(FsiSettingsDll). Build with a .NET SDK that includes F#." />
-  </Target>
 
 </Project>

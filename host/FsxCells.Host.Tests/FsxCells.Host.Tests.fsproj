@@ -20,4 +20,13 @@
     <ProjectReference Include="..\FsxCells.Host\FsxCells.Host.fsproj" />
   </ItemGroup>
 
+  <!-- The host loads the F# compiler from the installed SDK at startup (Sdk.fs). These tests run sessions in-process
+       instead, so they bring the compiler themselves, plus the SDK's fsi settings assembly next to it. -->
+  <ItemGroup>
+    <PackageReference Include="FSharp.Compiler.Service" Version="43.12.403" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildExtensionsPath)FSharp/FSharp.Compiler.Interactive.Settings.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
 </Project>

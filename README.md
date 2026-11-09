@@ -31,7 +31,9 @@ grid.Length
 
 ## Build
 
-Needs .NET 10 SDK and a JDK 21+ (`JAVA_HOME`).
+Needs .NET 10 SDK and a JDK 21+ (`JAVA_HOME`). To use the plugin you need a .NET 10 or newer SDK: cells are
+compiled by that SDK's F# compiler (the one `dotnet fsi` uses in the script's folder), so new F# versions work
+without a new plugin.
 
 ```bash
 cd plugin
