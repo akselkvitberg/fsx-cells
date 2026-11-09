@@ -1,8 +1,12 @@
 package fsxcells
 
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.openapi.util.Disposer
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -27,18 +31,25 @@ enum class OutputLineKind { Normal, Dim, Error }
 
 data class OutputLine(val text: String, val kind: OutputLineKind = OutputLineKind.Normal)
 
-/** What a cell's output block shows: the body lines, a summary line under them, and the full text for copying. */
-data class CellOutput(val lines: List<OutputLine>, val summary: String, val fullText: String)
+/**
+ * What a cell's output block shows: the body lines, a summary line under them, and the full text for copying.
+ * [html] is the body as HTML when the result has tables or objects; it is shown instead of [lines] when JCEF works.
+ */
+data class CellOutput(val lines: List<OutputLine>, val summary: String, val fullText: String, val html: String? = null)
 
 /**
  * The output block under a cell: a real Swing component embedded in the editor, so text can be selected and
  * copied. It is at most [MAX_VISIBLE_LINES] lines high and scrolls beyond that; the summary line stays visible.
+ * Output with HTML is shown in an embedded browser instead of the text pane, up to [MAX_HTML_LINES] lines high.
  */
 class OutputBlock(
     private val editor: EditorEx,
     val content: CellOutput,
     private val onOpenInTab: (CellOutput) -> Unit,
-) : JPanel(BorderLayout()) {
+) : JPanel(BorderLayout()), Disposable {
+
+    /** The inlay holding this block; set by CellOutputs so the block can ask it to re-measure. */
+    var inlay: Inlay<*>? = null
 
     private val textPane = object : JTextPane() {
         // Don't wrap: wide grids get a horizontal scrollbar instead.
@@ -71,6 +82,15 @@ class OutputBlock(
     private val scheme get() = editor.colorsScheme
     private val blockBackground: Color get() = blend(scheme.defaultBackground, scheme.defaultForeground, 0.05)
 
+    private val htmlView: HtmlView? =
+        content.html?.takeIf { HtmlSupport.isSupported }?.let { body ->
+            HtmlView(HtmlPage.page(body, htmlTheme()), ::onHtmlHeight, ::scrollEditor)
+                .also { Disposer.register(this, it) }
+        }
+
+    /** Height of the HTML page's content as the browser reports it; a guess from the text until then. */
+    private var htmlHeight: Int = -1
+
     init {
         val font = scheme.getFont(EditorFontType.PLAIN)
         textPane.isEditable = false
@@ -89,9 +109,34 @@ class OutputBlock(
         summaryLabel.border = JBUI.Borders.empty(1, 8, 2, 8)
         summaryLabel.componentPopupMenu = textPane.componentPopupMenu
 
-        if (content.lines.isNotEmpty()) add(scrollPane, BorderLayout.CENTER)
+        if (htmlView != null) add(htmlView.component, BorderLayout.CENTER)
+        else if (content.lines.isNotEmpty()) add(scrollPane, BorderLayout.CENTER)
         add(summaryLabel, BorderLayout.SOUTH)
         render()
+    }
+
+    override fun dispose() {}
+
+    private fun htmlTheme() = HtmlTheme(
+        background = blockBackground,
+        foreground = scheme.defaultForeground,
+        error = ERROR,
+        fontFamily = scheme.editorFontName,
+        fontSizePx = scheme.editorFontSize,
+        dark = ColorUtil.isDark(scheme.defaultBackground),
+    )
+
+    private fun onHtmlHeight(height: Int) {
+        if (height == htmlHeight) return
+        htmlHeight = height
+        revalidate()
+        inlay?.update()
+        repaint()
+    }
+
+    private fun scrollEditor(deltaPx: Double) {
+        val scrolling = editor.scrollingModel
+        scrolling.scrollVertically(scrolling.verticalScrollOffset + deltaPx.toInt())
     }
 
     private fun color(kind: OutputLineKind): Color {
@@ -118,6 +163,7 @@ class OutputBlock(
             doc.insertString(doc.length, if (i == 0) line.text else "\n" + line.text, attrs)
         }
         textPane.caretPosition = 0
+        htmlView?.setDimmed(dimmed)
 
         summaryLabel.text = if (running) "running…" else content.summary
         summaryLabel.foreground = if (running) blend(scheme.defaultForeground, scheme.defaultBackground, 0.4)
@@ -142,6 +188,14 @@ class OutputBlock(
         val contentWidth = textWidth + textInsets.left + textInsets.right + JBUI.scale(6)
         val summaryWidth = summaryLabel.preferredSize.width
         val maxWidth = (editor.scrollingModel.visibleArea.width - JBUI.scale(40)).coerceAtLeast(JBUI.scale(300))
+
+        if (htmlView != null) {
+            // Until the browser reports its height, guess from the text lines so the editor jumps less.
+            val guess = minOf(content.lines.size, MAX_VISIBLE_LINES) * lineHeight + textInsets.top + textInsets.bottom
+            val pageHeight = if (htmlHeight >= 0) htmlHeight else guess
+            val height = minOf(pageHeight, MAX_HTML_LINES * lineHeight).coerceAtLeast(lineHeight)
+            return Dimension(maxWidth + JBUI.scale(3), height + summaryHeight)
+        }
 
         if (content.lines.isEmpty()) {
             return Dimension(summaryWidth + JBUI.scale(3), summaryHeight)
@@ -191,6 +245,8 @@ class OutputBlock(
 
     companion object {
         const val MAX_VISIBLE_LINES = 20
+        /** HTML output (tables) gets a little more room before it scrolls. */
+        const val MAX_HTML_LINES = 25
         private val ACCENT = JBColor(Color(0x4A90D9), Color(0x5C9DE0))
         private val ERROR = JBColor(Color(0xC62828), Color(0xFF6B68))
 

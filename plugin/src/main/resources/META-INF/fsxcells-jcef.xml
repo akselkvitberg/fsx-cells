@@ -1,0 +1,2 @@
+<!-- Loaded when the JCEF plugin is present. Nothing to register: HtmlView checks JBCefApp.isSupported() itself. -->
+<idea-plugin/>

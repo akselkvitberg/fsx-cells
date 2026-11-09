@@ -105,13 +105,26 @@ type Session() =
         lazy (
             let config = FsiEvaluationSession.GetDefaultConfiguration()
             let argv = [| "fsi.exe"; "--noninteractive"; "--quiet"; "--multiemit" |]
-            FsiEvaluationSession.Create(
-                config,
-                argv,
-                TextReader.Null, // never let FSI read the protocol's stdin
-                new ForwardingWriter(fun () -> Console.Out),
-                new ForwardingWriter(fun () -> Console.Error),
-                collectible = false))
+            let session =
+                FsiEvaluationSession.Create(
+                    config,
+                    argv,
+                    TextReader.Null, // never let FSI read the protocol's stdin
+                    new ForwardingWriter(fun () -> Console.Out),
+                    new ForwardingWriter(fun () -> Console.Error),
+                    collectible = false)
+            // Make `display`, `.Display()` and `Formatter` available, sharing this process's loaded host assembly.
+            let hostAssembly = typeof<FsxCells.Interactive.Formatter>.Assembly.Location
+            let setup = sprintf "#r @\"%s\"\nopen FsxCells.Interactive" (hostAssembly.Replace("\"", "\"\""))
+            let oldOut, oldErr = Console.Out, Console.Error
+            try
+                Console.SetOut TextWriter.Null
+                Console.SetError TextWriter.Null
+                session.EvalInteractionNonThrowing setup |> ignore
+            finally
+                Console.SetOut oldOut
+                Console.SetError oldErr
+            session)
 
     let normalizeNewlines (s: string) = s.Replace("\r\n", "\n")
 
@@ -131,11 +144,12 @@ type Session() =
     member _.Eval(code: string, startLine: int) : EvalResult =
         let path = scriptPath
         evalThread.Run(fun () ->
-            let captured = new StringWriter()
+            let collector = Output.Collector()
             let oldOut, oldErr = Console.Out, Console.Error
             let sw = Stopwatch.StartNew()
-            Console.SetOut captured
-            Console.SetError captured
+            Console.SetOut collector.Writer
+            Console.SetError collector.Writer
+            Output.current <- Some collector
             let result, diagnostics =
                 try
                     // Pad with blank lines so line numbers in diagnostics and stack traces are the
@@ -144,6 +158,7 @@ type Session() =
                     fsi.Force().EvalInteractionNonThrowing(text, path)
                 finally
                     Console.Out.Flush()
+                    Output.current <- None
                     Console.SetOut oldOut
                     Console.SetError oldErr
             sw.Stop()
@@ -155,30 +170,46 @@ type Session() =
                 |> List.map (fun d -> sprintf "(%d,%d): %s" d.StartLine (d.StartCol + 1) d.Message)
                 |> fun l -> String.Join("\n", l)
 
-            let ok, valueText, typeName, error =
+            let ok, valueText, valueHtml, typeName, error =
                 match result with
                 // Parse errors can come back as a "successful" empty result.
-                | Choice1Of2 _ when not errors.IsEmpty -> false, None, None, Some(errorText ())
-                | Choice1Of2 None -> true, None, None, None
+                | Choice1Of2 _ when not errors.IsEmpty -> false, None, None, None, Some(errorText ())
+                | Choice1Of2 None -> true, None, None, None, None
                 | Choice1Of2(Some v) ->
                     try
                         match Formatting.formatValue v.ReflectionValue v.ReflectionType with
-                        | Some text -> true, Some text, Some(formatTypeName v), None
-                        | None -> true, None, None, None
+                        | Some text ->
+                            let html = Formatting.formatHtml v.ReflectionValue v.ReflectionType
+                            true, Some text, html, Some(formatTypeName v), None
+                        | None -> true, None, None, None, None
                     with e ->
-                        false, None, Some(formatTypeName v), Some("Formatting the value failed: " + formatException path e)
+                        false, None, None, Some(formatTypeName v), Some("Formatting the value failed: " + formatException path e)
                 | Choice2Of2 e ->
                     let message = if errors.IsEmpty then formatException path e else errorText ()
-                    false, None, None, Some message
+                    false, None, None, None, Some message
 
-            let stdout =
-                let s = normalizeNewlines (captured.ToString())
-                // FSI's own note after a failed interaction; the error is reported separately.
+            // FSI's own note after a failed interaction; the error is reported separately.
+            let stripStopped (s: string) =
                 if not ok && s.EndsWith "Stopped due to error\n" then s.Substring(0, s.Length - "Stopped due to error\n".Length) else s
 
+            let outputs =
+                let items =
+                    collector.Segments()
+                    |> List.map (function
+                        | Output.Printed text -> { Kind = "text"; Text = normalizeNewlines text; Html = None }
+                        | Output.Displayed(text, html) -> { Kind = "display"; Text = normalizeNewlines text; Html = html })
+                match List.rev items with
+                | last :: rest when last.Kind = "text" ->
+                    match stripStopped last.Text with
+                    | "" -> List.rev rest
+                    | text -> List.rev ({ last with Text = text } :: rest)
+                | _ -> items
+
             { Ok = ok
-              Stdout = stdout
+              Stdout = stripStopped (normalizeNewlines collector.Text)
+              Outputs = outputs
               ValueText = valueText |> Option.map normalizeNewlines
+              ValueHtml = valueHtml
               TypeName = typeName
               Error = error
               Diagnostics = diagnostics

@@ -9,6 +9,8 @@
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.rider</depends>
+    <!-- HTML output (tables) uses the embedded browser; without it output is shown as text. -->
+    <depends optional="true" config-file="fsxcells-jcef.xml">com.intellij.modules.jcef</depends>
 
     <actions>
         <group id="FsxCells.Group" text="FSX Cells" popup="true">

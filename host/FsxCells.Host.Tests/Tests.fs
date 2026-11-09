@@ -84,6 +84,187 @@ module FormattingTests =
         Assert.True(lines.Length > 1)
         Assert.All(lines, fun l -> Assert.True(l.Length <= 120, l))
 
+type Person = { Name: string; Age: int }
+
+type Account(owner: string, balance: decimal) =
+    member _.Owner = owner
+    member _.Balance = balance
+
+type Node(name: string) =
+    member _.Name = name
+    member val Next: Node = Unchecked.defaultof<_> with get, set
+
+type Throws() =
+    member _.Ok = 1
+    member _.Bad: int = failwith "nope"
+
+let lines (text: string option) = text.Value.Split '\n' |> Array.toList
+
+/// Runs f with a clean Formatter and resets it afterwards.
+let withFormatter f =
+    FsxCells.Interactive.Formatter.ResetToDefault()
+    try f () finally FsxCells.Interactive.Formatter.ResetToDefault()
+
+module ObjectFormattingTests =
+    open FsxCells.Interactive
+
+    let people = [ { Name = "Ada"; Age = 36 }; { Name = "Grace"; Age = 145 } ]
+
+    [<Fact>]
+    let ``a list of records is a table with numbers right-aligned`` () =
+        Assert.Equal<string list>(
+            [ "# │ Name  │ Age"
+              "──┼───────┼────"
+              "0 │ Ada   │  36"
+              "1 │ Grace │ 145" ],
+            lines (fmt people))
+
+    [<Fact>]
+    let ``a single record keeps %A`` () =
+        Assert.Equal(Some "{ Name = \"Ada\"\n  Age = 36 }", fmt people.Head)
+
+    [<Fact>]
+    let ``a class is its type name and properties`` () =
+        Assert.Equal<string list>([ "Account"; "  Owner: Ada"; "  Balance: 10.5" ], lines (fmt (Account("Ada", 10.5m))))
+
+    [<Fact>]
+    let ``a list of classes and of anonymous records are tables`` () =
+        Assert.Equal<string list>(
+            [ "# │ Owner │ Balance"; "──┼───────┼────────"; "0 │ Ada   │       1" ],
+            lines (fmt [ Account("Ada", 1m) ]))
+        Assert.Equal<string list>(
+            [ "# │ Id │ Ok"; "──┼────┼─────"; "0 │  1 │ true" ],
+            lines (fmt [| {| Id = 1; Ok = true |} |]))
+
+    [<Fact>]
+    let ``nested objects stop at the recursion limit`` () =
+        withFormatter (fun () ->
+            let a, b = Node "a", Node "b"
+            a.Next <- b
+            b.Next <- a
+            Formatter.RecursionLimit <- 2
+            Assert.Equal<string list>(
+                [ "Node"; "  Name: a"; "  Next: Node"; "    Name: b"; "    Next: Node" ],
+                lines (fmt a)))
+
+    [<Fact>]
+    let ``a dictionary is a key value table`` () =
+        Assert.Equal<string list>(
+            [ "key │ value"; "────┼──────"; "a   │     1"; "bb  │    22" ],
+            lines (fmt (dict [ "a", 1; "bb", 22 ])))
+        Assert.Equal<string list>(
+            [ "key │ Name  │ Age"; "────┼───────┼────"; "x   │ Ada   │  36"; "y   │ Grace │ 145" ],
+            lines (fmt (Map [ "x", people[0]; "y", people[1] ])))
+
+    [<Fact>]
+    let ``long sequences stop at the list expansion limit`` () =
+        withFormatter (fun () ->
+            Formatter.ListExpansionLimit <- 2
+            let text = lines (fmt [ for i in 1..10 -> { Name = string i; Age = i } ])
+            Assert.Equal(5, text.Length)
+            Assert.Equal("(8 more)", List.last text))
+
+    [<Fact>]
+    let ``a lazy sequence of records is enumerated only as far as shown`` () =
+        let mutable count = 0
+        let items = seq { for i in 1..1000 do count <- count + 1; yield { Name = "x"; Age = i } }
+        let text = lines (fmt items)
+        Assert.Equal("(more)", List.last text)
+        Assert.Equal(21, count)
+
+    [<Fact>]
+    let ``sequences of plain values keep %A`` () =
+        Assert.Equal(Some "[1; 2; 3]", fmt [ 1; 2; 3 ])
+        Assert.Equal(Some "[(1, \"a\")]", fmt [ (1, "a") ])
+
+    [<Fact>]
+    let ``mixed items get a value column`` () =
+        Assert.Equal<string list>(
+            [ "# │ Name │ Age │ value"; "──┼──────┼─────┼───────"; "0 │      │     │ 1"; "1 │ Ada  │  36 │"; "2 │      │     │ <null>" ],
+            lines (fmt [ box 1; box people.Head; null ]))
+
+    [<Fact>]
+    let ``a property that throws shows the error`` () =
+        Assert.Equal<string list>([ "Throws"; "  Ok: 1"; "  Bad: <Exception: nope>" ], lines (fmt (Throws())))
+
+    [<Fact>]
+    let ``registered formatters are used at the top, in tables and in objects`` () =
+        withFormatter (fun () ->
+            Formatter.Register(fun (p: Person) -> sprintf "%s (%d)" p.Name p.Age)
+            Assert.Equal(Some "Ada (36)", fmt people.Head)
+            Assert.Equal<string list>([ "# │ value"; "──┼────────────"; "0 │ Ada (36)"; "1 │ Grace (145)" ], lines (fmt people))
+            Assert.Equal<string list>(
+                [ "key │ value"; "────┼─────────"; "a   │ Ada (36)" ],
+                lines (fmt (dict [ "a", people.Head ]))))
+
+    [<Fact>]
+    let ``the most specific formatter wins and open generics work`` () =
+        withFormatter (fun () ->
+            Formatter.Register(fun (_: obj) -> "object")
+            Formatter.Register(typedefof<list<_>>, fun _ -> "a list")
+            Formatter.Register(fun (_: Account) -> "account")
+            Assert.Equal(Some "account", fmt (Account("a", 1m)))
+            Assert.Equal(Some "a list", fmt [ 1 ])
+            Assert.Equal(Some "object", fmt 42))
+
+    [<Fact>]
+    let ``formatters for other MIME types are not used and reset clears them`` () =
+        withFormatter (fun () ->
+            Formatter.Register((fun (_: Account) -> "<b>html</b>"), "text/html")
+            Assert.Equal("Account", (lines (fmt (Account("a", 1m)))).Head)
+            Formatter.Register(fun (_: Account) -> "plain")
+            Assert.Equal(Some "plain", fmt (Account("a", 1m)))
+            Formatter.ResetToDefault()
+            Assert.Equal("Account", (lines (fmt (Account("a", 1m)))).Head))
+
+    let html (v: 'T) = Formatting.formatHtml (box v) typeof<'T>
+
+    [<Fact>]
+    let ``html for a list of records is a table`` () =
+        withFormatter (fun () ->
+            Assert.Equal(
+                Some(
+                    "<table class=\"fc-table\"><thead><tr><th>#</th><th>Name</th><th>Age</th></tr></thead><tbody>"
+                    + "<tr><td class=\"fc-index\">0</td><td>Ada</td><td class=\"fc-num\">36</td></tr>"
+                    + "<tr><td class=\"fc-index\">1</td><td>Grace</td><td class=\"fc-num\">145</td></tr></tbody></table>"),
+                html people))
+
+    [<Fact>]
+    let ``html escapes text and folds nested objects`` () =
+        withFormatter (fun () ->
+            let h = (html [ Account("<b>", 1m) ]).Value
+            Assert.Contains("&lt;b&gt;", h)
+            let a = (html (Account("a", 1m))).Value
+            Assert.StartsWith("<details class=\"fc-object\" open><summary>Account</summary><table class=\"fc-props\">", a)
+            Assert.Contains("<tr><th>Owner</th><td>a</td></tr>", a))
+
+    [<Fact>]
+    let ``no html for values with a text layout or none of their own`` () =
+        withFormatter (fun () ->
+            Assert.Equal(None, html "text")
+            Assert.Equal(None, html [ 1; 2 ])
+            Assert.Equal(None, html people.Head)
+            Assert.Equal(None, html (set [ (0, 0) ]))
+            Assert.Equal(None, html (array2D [ [ 'a' ] ])))
+
+    [<Fact>]
+    let ``html follows DefaultMimeType, preferred MIME types and html formatters`` () =
+        withFormatter (fun () ->
+            Formatter.DefaultMimeType <- "text/plain"
+            Assert.Equal(None, html people)
+            Formatter.DefaultMimeType <- "text/html"
+            Formatter.SetPreferredMimeTypesFor(typeof<Account>, "text/plain")
+            Assert.Equal(None, html (Account("a", 1m)))
+            Formatter.Register((fun (p: Person) -> "<i>" + p.Name + "</i>"), "text/html")
+            Assert.Equal(Some "<i>Ada</i>", html people.Head)
+            Assert.Contains("<td><i>Grace</i></td>", (html people).Value)
+            // The text formatter is not affected by an html one.
+            Assert.Equal(Some "{ Name = \"Ada\"\n  Age = 36 }", fmt people.Head))
+
+    [<Fact>]
+    let ``json formatting`` () =
+        Assert.Equal(Some "{\n  \"Name\": \"Ada\",\n  \"Age\": 36\n}", Formatting.formatAs "application/json" (box people.Head) typeof<Person>)
+
 module ProtocolTests =
 
     [<Fact>]
@@ -97,7 +278,9 @@ module ProtocolTests =
         let r =
             { Ok = true
               Stdout = "hi\n"
+              Outputs = []
               ValueText = Some "2"
+              ValueHtml = None
               TypeName = Some "int"
               Error = None
               Diagnostics = []
@@ -105,6 +288,24 @@ module ProtocolTests =
         Assert.Equal(
             """{"type":"result","id":7,"ok":true,"stdout":"hi\n","valueText":"2","typeName":"int","diagnostics":[],"elapsedMs":5}""",
             serializeEvalResponse "7" r)
+
+module ProtocolOutputTests =
+
+    [<Fact>]
+    let ``serializes outputs and valueHtml`` () =
+        let r =
+            { Ok = true
+              Stdout = "a\nT\n"
+              Outputs = [ { Kind = "text"; Text = "a\n"; Html = None }; { Kind = "display"; Text = "T"; Html = Some "<i>T</i>" } ]
+              ValueText = Some "v"
+              ValueHtml = Some "<b>v</b>"
+              TypeName = Some "X"
+              Error = None
+              Diagnostics = []
+              ElapsedMs = 1L }
+        Assert.Equal(
+            """{"type":"result","id":1,"ok":true,"stdout":"a\nT\n","outputs":[{"type":"text","text":"a\n"},{"type":"display","text":"T","html":"<i>T</i>"}],"valueText":"v","valueHtml":"<b>v</b>","typeName":"X","diagnostics":[],"elapsedMs":1}""",
+            serializeEvalResponse "1" r)
 
 /// A temp folder layout like the Advent of Code repo: <root>/utils.fsx and <root>/2025/Day01.fsx.
 let makeScriptDir () =
@@ -189,3 +390,44 @@ type SessionTests() =
         Assert.True(r.Ok, string r.Error)
         Assert.Equal(Some "#.\n.#", r.ValueText)
         Assert.Equal(Some "char array2d", r.TypeName)
+
+    [<Fact>]
+    member _.``display and Formatter are available in the session``() =
+        let r =
+            eval
+                "type P = { N: int }\nFormatter.Register(fun (p: P) -> sprintf \"P%d\" p.N)\ndisplay { N = 1 }\nprintfn \"mid\"\n{ N = 2 }.Display()\n[ { N = 3 } ]"
+                1
+        try
+            Assert.True(r.Ok, string r.Error)
+            Assert.Equal("P1\nmid\nP2\n", r.Stdout)
+            Assert.Equal(Some "# │ value\n──┼──────\n0 │ P3", r.ValueText)
+            Assert.Equal(Some "<table class=\"fc-table\"><thead><tr><th>#</th><th>value</th></tr></thead><tbody><tr><td class=\"fc-index\">0</td><td>P3</td></tr></tbody></table>", r.ValueHtml)
+            Assert.Equal<Protocol.OutputItem list>(
+                [ { Kind = "display"; Text = "P1"; Html = None }
+                  { Kind = "text"; Text = "mid\n"; Html = None }
+                  { Kind = "display"; Text = "P2"; Html = None } ],
+                r.Outputs)
+        finally
+            FsxCells.Interactive.Formatter.ResetToDefault()
+
+    [<Fact>]
+    member _.``displayed tables carry html``() =
+        let r = eval "type Q = { A: int }\nprintf \"x\"\ndisplay [ { A = 1 } ]\ndisplayHtml \"<b>hi</b>\"" 1
+        Assert.True(r.Ok, string r.Error)
+        match r.Outputs with
+        | [ { Kind = "text"; Text = "x" }; { Kind = "display"; Html = Some table }; { Kind = "display"; Text = "<b>hi</b>"; Html = Some "<b>hi</b>" } ] ->
+            Assert.StartsWith("<table", table)
+        | other -> failwithf "%A" other
+        Assert.Equal(None, r.ValueText)
+
+    [<Fact>]
+    member _.``no outputs list when nothing is displayed``() =
+        let r = eval "printfn \"a\"\n1" 1
+        Assert.Equal<Protocol.OutputItem list>([], r.Outputs)
+        Assert.Equal(None, r.ValueHtml)
+
+    [<Fact>]
+    member _.``a class from the script is shown by its properties``() =
+        let r = eval "type Acc(o: string) =\n    member _.Owner = o\nAcc \"Ada\"" 1
+        Assert.True(r.Ok, string r.Error)
+        Assert.Equal(Some "Acc\n  Owner: Ada", r.ValueText)
