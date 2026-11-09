@@ -5,7 +5,7 @@ Run cells of plain F# script (`.fsx`) files in Rider, notebook-style, and see th
 ```fsharp
 // %% Parse
 let grid = input.Split('\n') |> Array.map _.ToCharArray()
-grid            // Ctrl+Enter -> the grid is drawn under this line
+grid            // Ctrl+Enter -> the value is shown under this line
 
 (* cell *)
 grid.Length

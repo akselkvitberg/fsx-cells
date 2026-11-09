@@ -102,11 +102,6 @@ A request the host can't read gets a `protocolError` reply (with the `id` if it 
 | Value | Shown as |
 |---|---|
 | `string` | The raw text: real line breaks, no quotes. |
-| `char[,]`, `char[][]` | One line per row. |
-| `string[]`, `string list` | One line per item. |
-| `bool[,]` | `#` for `true`, `.` for `false`. |
-| `Set<int*int>`, `(int*int)` list / array / seq / `ResizeArray` / `HashSet` | `#` at each point on a `.` grid sized to the bounding box. Points are `(x, y)`: x is the column, y the row. Empty or huge collections fall back to `%A`. |
-| `Map<int*int, char>` | The chars on a grid sized to the bounding box, spaces for missing points. |
 | A sequence of records, anonymous records or objects | A table: a `#` column, then one column per field or property. |
 | A sequence of union values (`Result` too) | A table: a `Case` column, then the case's fields: named fields by name, unnamed ones as `Item`, `Item1`, `Item2`. Fields another case doesn't have are left empty. Options and unions whose cases have no fields keep `%A`. |
 | A dictionary (`Map`, `dict`, `Dictionary`, ...) | A table with a `key` column, then the value's fields, or a `value` column. |
@@ -119,7 +114,7 @@ A request the host can't read gets a `protocolError` reply (with the `id` if it 
 
 Tables (of records, objects or unions), dictionaries and objects also get HTML (`valueHtml`), which the plugin
 shows in an embedded browser: real tables, and nested objects and tables folded into `<details>`. Other values
-(single records, unions, grids, strings, values with a printer, ...) only have text. The markup has no styles of
+(single records, unions, strings, values with a printer, ...) only have text. The markup has no styles of
 its own; the plugin styles its `fc-*` classes to match the editor.
 
 ### Display annotations

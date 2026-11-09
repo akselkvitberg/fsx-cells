@@ -14,7 +14,7 @@ open FSharp.Compiler.Interactive.Shell
 open FSharp.Compiler.Symbols
 open FsxCells.Host.Protocol
 
-/// Stack size of the evaluation thread. Advent of Code solutions often recurse deeply.
+/// Stack size of the evaluation thread, so deeply recursive scripts don't overflow the stack.
 let evalStackSize = 256 * 1024 * 1024
 
 /// Runs work items one at a time on a dedicated thread with a large stack.

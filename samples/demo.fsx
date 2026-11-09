@@ -33,7 +33,7 @@ grid
 // %%
 
 (* cell *)
-// A set of (x, y) points is drawn as a grid
+// The (x, y) points of the '#' cells
 let points =
     set [ for y in 0 .. grid.Length - 1 do
             for x in 0 .. grid[y].Length - 1 do

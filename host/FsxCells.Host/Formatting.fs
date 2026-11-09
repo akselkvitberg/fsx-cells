@@ -14,13 +14,6 @@ open System.Text.RegularExpressions
 open Microsoft.FSharp.Reflection
 open FSharp.Compiler.Interactive.Shell
 
-/// Points grids larger than this many cells fall back to %A.
-let maxGridCells = 4_000_000
-/// Points grids wider or taller than this fall back to %A, so sparse coordinates don't become huge lines.
-let maxGridSide = 2_000
-/// Point sequences with more items than this fall back to %A (also guards infinite seqs).
-let maxPoints = 1_000_000
-
 type private Generic =
     static member FormatA<'T>(x: 'T) : string = sprintf "%120A" x
 
@@ -36,70 +29,6 @@ let formatA (value: obj) (ty: Type) : string =
     | :? Reflection.TargetInvocationException as e when not (isNull e.InnerException) -> raise e.InnerException
 
 let private joinLines (lines: seq<string>) = String.Join("\n", lines)
-
-let charGrid2D (a: char[,]) =
-    let b0, b1 = Array2D.base1 a, Array2D.base2 a
-    seq {
-        for r in 0 .. Array2D.length1 a - 1 ->
-            String(Array.init (Array2D.length2 a) (fun c -> a[b0 + r, b1 + c]))
-    }
-    |> joinLines
-
-let boolGrid2D (a: bool[,]) =
-    let b0, b1 = Array2D.base1 a, Array2D.base2 a
-    seq {
-        for r in 0 .. Array2D.length1 a - 1 ->
-            String(Array.init (Array2D.length2 a) (fun c -> if a[b0 + r, b1 + c] then '#' else '.'))
-    }
-    |> joinLines
-
-/// Renders cells (x,y) -> char on a grid sized to the bounding box. x is the column, y the row.
-let private renderCells (cells: IReadOnlyCollection<struct (int * int * char)>) (empty: char) : string option =
-    if cells.Count = 0 then
-        None
-    else
-        let mutable minX, maxX, minY, maxY = Int32.MaxValue, Int32.MinValue, Int32.MaxValue, Int32.MinValue
-        for struct (x, y, _) in cells do
-            minX <- min minX x
-            maxX <- max maxX x
-            minY <- min minY y
-            maxY <- max maxY y
-        let w = int64 maxX - int64 minX + 1L
-        let h = int64 maxY - int64 minY + 1L
-        if w * h > int64 maxGridCells || w > int64 maxGridSide || h > int64 maxGridSide then
-            None
-        else
-            let grid = Array.init (int h) (fun _ -> Array.create (int w) empty)
-            for struct (x, y, c) in cells do
-                grid[y - minY][x - minX] <- c
-            Some(grid |> Seq.map String |> joinLines)
-
-/// `#` for each (x,y) point on a `.` grid.
-let pointGrid (points: seq<int * int>) : string option =
-    let cells = List<struct (int * int * char)>()
-    use e = points.GetEnumerator()
-    let mutable tooMany = false
-    while not tooMany && e.MoveNext() do
-        let x, y = e.Current
-        cells.Add(struct (x, y, '#'))
-        if cells.Count > maxPoints then tooMany <- true
-    if tooMany then None else renderCells cells '.'
-
-/// Map<(x,y), char> on a grid; missing cells are spaces.
-let charMapGrid (m: Map<int * int, char>) : string option =
-    let cells = List<struct (int * int * char)>()
-    for KeyValue((x, y), c) in m do
-        cells.Add(struct (x, y, c))
-    renderCells cells ' '
-
-/// True for the static types we treat as point collections.
-let private isPointCollectionType (ty: Type) =
-    ty = typeof<Set<int * int>>
-    || ty = typeof<(int * int) list>
-    || ty = typeof<(int * int)[]>
-    || ty = typeof<seq<int * int>>
-    || ty = typeof<ResizeArray<int * int>>
-    || ty = typeof<HashSet<int * int>>
 
 // ---------------------------------------------------------------------------------------------------------------
 // Objects, tables and dictionaries, modelled on .NET Interactive's plain-text formatter.
@@ -568,22 +497,6 @@ let formatValue (value: obj) (ty: Type) : string option =
             | _ when (tryCustom value).IsSome -> tryCustom value
             | null -> None
             | :? string as s -> Some s
-            | :? (char[,]) as a -> Some(charGrid2D a)
-            | :? (bool[,]) as a -> Some(boolGrid2D a)
-            | :? (char[][]) as a -> Some(a |> Seq.map (fun row -> if isNull row then "" else String(row)) |> joinLines)
-            | :? (string[]) as a -> Some(joinLines a)
-            | :? (string list) as l -> Some(joinLines l)
-            | :? Map<int * int, char> as m -> charMapGrid m
-            | :? seq<int * int> as points when isPointCollectionType ty || isPointCollectionType (value.GetType()) ->
-                match value with
-                // In-memory collections can safely be enumerated again by %A if the grid doesn't fit.
-                | :? IReadOnlyCollection<int * int> -> pointGrid points
-                | _ ->
-                    // A lazy seq: enumerate it once (bounded), so side effects and work happen only once.
-                    let items = points |> Seq.truncate (maxPoints + 1) |> Seq.toArray
-                    match pointGrid items with
-                    | Some grid -> Some grid
-                    | None -> Some(formatA (box items) typeof<(int * int)[]>)
             | _ ->
                 match kindOf value with
                 | Dictionary ->
@@ -601,19 +514,6 @@ let formatValue (value: obj) (ty: Type) : string option =
 // fc-* classes; the markup itself has no colours or fonts.
 
 let private esc (s: string) = Net.WebUtility.HtmlEncode s
-
-/// Values shown as text even when HTML is on: strings, grids and point sets have their own text layouts.
-let private hasTextLayout (value: obj) (ty: Type) =
-    match value with
-    | :? string
-    | :? (char[,])
-    | :? (bool[,])
-    | :? (char[][])
-    | :? (string[])
-    | :? (string list)
-    | :? Map<int * int, char> -> true
-    | :? seq<int * int> -> isPointCollectionType ty || isPointCollectionType (value.GetType())
-    | _ -> false
 
 let private numClass (v: obj) = if isNumericValue v then " class=\"fc-num\"" else ""
 
@@ -705,10 +605,10 @@ and private dictionaryHtml depth (pairs: obj[]) (more: string option) =
     tableHtml depth "key" (Array.map fst pairs) false (Array.map snd pairs) more
 
 /// The HTML for a value, or None when it is better shown as text: it has no table or object layout (plain values,
-/// single records and unions, ...), its own text layout (grids, strings), or an fsi.AddPrinter printer.
+/// single records and unions, strings, ...) or an fsi.AddPrinter printer.
 let formatHtml (value: obj) (ty: Type) : string option =
     let ty = if isNull ty then (if isNull value then typeof<obj> else value.GetType()) else ty
-    if isNull value || ty = typeof<unit> || ty = typeof<Void> || (tryCustom value).IsSome || hasTextLayout value ty then
+    if isNull value || ty = typeof<unit> || ty = typeof<Void> || (tryCustom value).IsSome then
         None
     else
         match kindOf value with
