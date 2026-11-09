@@ -44,14 +44,16 @@ Install the zip in your own Rider with Settings > Plugins > Install Plugin from 
 ## Output blocks
 
 Output appears under the cell as a block you can select and copy from (Ctrl+C, or right-click > Copy / Copy All /
-Open in Editor Tab). Blocks are at most 20 lines high and scroll beyond that. Editing a cell greys out its output
+Open in Editor Tab). Blocks are at most 20 lines high (25 for HTML) and scroll beyond that. Editing a cell greys out its output
 until you run it again; compile errors and the script line a runtime exception came from get a wavy underline.
 
 ## Tables, objects and `display`
 
-Values are shown like Polyglot Notebooks' plain-text output: a sequence of records or objects is a table, a
-dictionary is a key/value table, and a class is its type name followed by its properties. `display x` (or
-`x.Display()`) shows a value partway through a cell, and `Formatter.Register` sets how a type is shown:
+Values are shown like Polyglot Notebooks shows them: a sequence of records or objects is a table, a dictionary is
+a key/value table, and a class is its type name followed by its properties. These are drawn as HTML in an embedded
+browser (JCEF), with nested objects and tables you can fold open; other values stay text. Without JCEF, or with
+`Formatter.DefaultMimeType <- "text/plain"`, the tables are drawn in text. `display x` (or `x.Display()`) shows a
+value partway through a cell, and `Formatter.Register` sets how a type is shown, as text or as HTML:
 
 ```fsharp
 type Person = { Name: string; Age: int }
@@ -62,6 +64,7 @@ type Person = { Name: string; Age: int }
 // 1 │ Grace │  45
 
 Formatter.Register(fun (p: Person) -> sprintf "%s (%d)" p.Name p.Age)
+Formatter.Register((fun (p: Person) -> sprintf "<b>%s</b>" p.Name), "text/html")
 ```
 
 See [host/README.md](host/README.md#value-formatting) for the details. `display` and `Formatter` exist only in

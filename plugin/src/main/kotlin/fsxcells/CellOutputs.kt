@@ -91,9 +91,13 @@ class CellOutputs private constructor(private val editor: Editor) {
         )
         if (existing != null) Disposer.dispose(existing.inlay)
         if (inlay == null) {
+            Disposer.dispose(block)
             if (existing != null) { existing.key.dispose(); entries.remove(existing) }
             return
         }
+        // The block (and its browser, for HTML output) goes away with the inlay.
+        Disposer.register(inlay, block)
+        block.inlay = inlay
 
         val entry = existing?.also { it.inlay = inlay; it.block = block }
             ?: Entry(CellKey.of(document, cell), inlay, block).also { entries += it }
@@ -226,6 +230,7 @@ object OutputFormatter {
         result.error?.lines()?.forEach { lines += OutputLine(it, OutputLineKind.Error) }
 
         val fullText = lines.joinToString("\n") { it.text }
+        val html = HtmlPage.body(result)
         val shown =
             if (lines.size > MAX_LINES) lines.take(MAX_LINES) + OutputLine("… ${lines.size - MAX_LINES} more lines (Open in Editor Tab to see all)", OutputLineKind.Dim)
             else lines
@@ -235,7 +240,7 @@ object OutputFormatter {
             append("(").append(result.elapsedMs).append(" ms)")
             if (lines.size > OutputBlock.MAX_VISIBLE_LINES) append("   ").append(lines.size).append(" lines")
         }
-        return CellOutput(shown, summary, fullText)
+        return CellOutput(shown, summary, fullText, html)
     }
 
     fun running() = CellOutput(emptyList(), "running…", "")

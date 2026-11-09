@@ -217,6 +217,50 @@ module ObjectFormattingTests =
             Formatter.ResetToDefault()
             Assert.Equal("Account", (lines (fmt (Account("a", 1m)))).Head))
 
+    let html (v: 'T) = Formatting.formatHtml (box v) typeof<'T>
+
+    [<Fact>]
+    let ``html for a list of records is a table`` () =
+        withFormatter (fun () ->
+            Assert.Equal(
+                Some(
+                    "<table class=\"fc-table\"><thead><tr><th>#</th><th>Name</th><th>Age</th></tr></thead><tbody>"
+                    + "<tr><td class=\"fc-index\">0</td><td>Ada</td><td class=\"fc-num\">36</td></tr>"
+                    + "<tr><td class=\"fc-index\">1</td><td>Grace</td><td class=\"fc-num\">145</td></tr></tbody></table>"),
+                html people))
+
+    [<Fact>]
+    let ``html escapes text and folds nested objects`` () =
+        withFormatter (fun () ->
+            let h = (html [ Account("<b>", 1m) ]).Value
+            Assert.Contains("&lt;b&gt;", h)
+            let a = (html (Account("a", 1m))).Value
+            Assert.StartsWith("<details class=\"fc-object\" open><summary>Account</summary><table class=\"fc-props\">", a)
+            Assert.Contains("<tr><th>Owner</th><td>a</td></tr>", a))
+
+    [<Fact>]
+    let ``no html for values with a text layout or none of their own`` () =
+        withFormatter (fun () ->
+            Assert.Equal(None, html "text")
+            Assert.Equal(None, html [ 1; 2 ])
+            Assert.Equal(None, html people.Head)
+            Assert.Equal(None, html (set [ (0, 0) ]))
+            Assert.Equal(None, html (array2D [ [ 'a' ] ])))
+
+    [<Fact>]
+    let ``html follows DefaultMimeType, preferred MIME types and html formatters`` () =
+        withFormatter (fun () ->
+            Formatter.DefaultMimeType <- "text/plain"
+            Assert.Equal(None, html people)
+            Formatter.DefaultMimeType <- "text/html"
+            Formatter.SetPreferredMimeTypesFor(typeof<Account>, "text/plain")
+            Assert.Equal(None, html (Account("a", 1m)))
+            Formatter.Register((fun (p: Person) -> "<i>" + p.Name + "</i>"), "text/html")
+            Assert.Equal(Some "<i>Ada</i>", html people.Head)
+            Assert.Contains("<td><i>Grace</i></td>", (html people).Value)
+            // The text formatter is not affected by an html one.
+            Assert.Equal(Some "{ Name = \"Ada\"\n  Age = 36 }", fmt people.Head))
+
     [<Fact>]
     let ``json formatting`` () =
         Assert.Equal(Some "{\n  \"Name\": \"Ada\",\n  \"Age\": 36\n}", Formatting.formatAs "application/json" (box people.Head) typeof<Person>)
@@ -234,7 +278,9 @@ module ProtocolTests =
         let r =
             { Ok = true
               Stdout = "hi\n"
+              Outputs = []
               ValueText = Some "2"
+              ValueHtml = None
               TypeName = Some "int"
               Error = None
               Diagnostics = []
@@ -242,6 +288,24 @@ module ProtocolTests =
         Assert.Equal(
             """{"type":"result","id":7,"ok":true,"stdout":"hi\n","valueText":"2","typeName":"int","diagnostics":[],"elapsedMs":5}""",
             serializeEvalResponse "7" r)
+
+module ProtocolOutputTests =
+
+    [<Fact>]
+    let ``serializes outputs and valueHtml`` () =
+        let r =
+            { Ok = true
+              Stdout = "a\nT\n"
+              Outputs = [ { Kind = "text"; Text = "a\n"; Html = None }; { Kind = "display"; Text = "T"; Html = Some "<i>T</i>" } ]
+              ValueText = Some "v"
+              ValueHtml = Some "<b>v</b>"
+              TypeName = Some "X"
+              Error = None
+              Diagnostics = []
+              ElapsedMs = 1L }
+        Assert.Equal(
+            """{"type":"result","id":1,"ok":true,"stdout":"a\nT\n","outputs":[{"type":"text","text":"a\n"},{"type":"display","text":"T","html":"<i>T</i>"}],"valueText":"v","valueHtml":"<b>v</b>","typeName":"X","diagnostics":[],"elapsedMs":1}""",
+            serializeEvalResponse "1" r)
 
 /// A temp folder layout like the Advent of Code repo: <root>/utils.fsx and <root>/2025/Day01.fsx.
 let makeScriptDir () =
@@ -337,8 +401,30 @@ type SessionTests() =
             Assert.True(r.Ok, string r.Error)
             Assert.Equal("P1\nmid\nP2\n", r.Stdout)
             Assert.Equal(Some "# │ value\n──┼──────\n0 │ P3", r.ValueText)
+            Assert.Equal(Some "<table class=\"fc-table\"><thead><tr><th>#</th><th>value</th></tr></thead><tbody><tr><td class=\"fc-index\">0</td><td>P3</td></tr></tbody></table>", r.ValueHtml)
+            Assert.Equal<Protocol.OutputItem list>(
+                [ { Kind = "display"; Text = "P1"; Html = None }
+                  { Kind = "text"; Text = "mid\n"; Html = None }
+                  { Kind = "display"; Text = "P2"; Html = None } ],
+                r.Outputs)
         finally
             FsxCells.Interactive.Formatter.ResetToDefault()
+
+    [<Fact>]
+    member _.``displayed tables carry html``() =
+        let r = eval "type Q = { A: int }\nprintf \"x\"\ndisplay [ { A = 1 } ]\ndisplayHtml \"<b>hi</b>\"" 1
+        Assert.True(r.Ok, string r.Error)
+        match r.Outputs with
+        | [ { Kind = "text"; Text = "x" }; { Kind = "display"; Html = Some table }; { Kind = "display"; Text = "<b>hi</b>"; Html = Some "<b>hi</b>" } ] ->
+            Assert.StartsWith("<table", table)
+        | other -> failwithf "%A" other
+        Assert.Equal(None, r.ValueText)
+
+    [<Fact>]
+    member _.``no outputs list when nothing is displayed``() =
+        let r = eval "printfn \"a\"\n1" 1
+        Assert.Equal<Protocol.OutputItem list>([], r.Outputs)
+        Assert.Equal(None, r.ValueHtml)
 
     [<Fact>]
     member _.``a class from the script is shown by its properties``() =

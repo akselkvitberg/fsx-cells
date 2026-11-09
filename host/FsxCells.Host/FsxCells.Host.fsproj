@@ -9,6 +9,7 @@
     <Compile Include="Protocol.fs" />
     <Compile Include="Formatter.fs" />
     <Compile Include="Formatting.fs" />
+    <Compile Include="Output.fs" />
     <Compile Include="Display.fs" />
     <Compile Include="Session.fs" />
     <Compile Include="Program.fs" />

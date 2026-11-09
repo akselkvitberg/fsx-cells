@@ -1,4 +1,4 @@
-// Tables, objects, `display` and `Formatter`, like Polyglot Notebooks' plain-text output.
+// Tables, objects, `display` and `Formatter`, like Polyglot Notebooks. Tables and objects are HTML when JCEF works.
 // `display` and `Formatter` exist only in fsx-cells sessions, so this file doesn't run under plain `dotnet fsi`.
 
 // %% A list of records is a table
@@ -33,6 +33,16 @@ seq { for i in 1..1_000_000 -> {| N = i; Square = int64 i * int64 i |} }
 // %% Custom formatters apply everywhere, including inside tables
 Formatter.Register(fun (p: Person) -> sprintf "%s, %d" p.Name p.Age)
 [ Account(people[0], 10m); Account(people[1], 20m) ]
+
+// %% HTML formatters and raw HTML
+type Swatch = { Color: string }
+Formatter.Register((fun (s: Swatch) -> sprintf "<span style='background:%s'>&nbsp;&nbsp;&nbsp;&nbsp;</span> %s" s.Color s.Color), "text/html")
+displayHtml "<b>Swatches</b>"
+[ { Color = "tomato" }; { Color = "teal" }; { Color = "gold" } ]
+
+// %% Text only
+Formatter.DefaultMimeType <- "text/plain"
+people
 
 // %% Back to the defaults
 Formatter.ResetToDefault()

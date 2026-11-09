@@ -51,7 +51,9 @@ The response:
 | `id` | The request's id. |
 | `ok` | `false` for compile errors (any diagnostic with severity `error`) and runtime exceptions. |
 | `stdout` | Everything the cell wrote to stdout and stderr, in order, with `\n` line endings. |
+| `outputs` | Only when the cell called `display`: `[{type,text,html?}]` in order, `type` being `text` (printed output) or `display` (a displayed value, with `html` when it has an HTML layout). `stdout` still has all the text. |
 | `valueText` | The cell's value as display text. Missing for `unit` and for declarations (`let x = ...`). |
+| `valueHtml` | The value as HTML, when it has a table or object layout or a `text/html` formatter and HTML is on (see below). |
 | `typeName` | F# type of the value, e.g. `int`, `Set<int * int>`, `char array2d`. Missing when `valueText` is. |
 | `error` | Compile errors as `(line,col): message` lines, or the runtime exception as `Type: message` followed by the stack frames from the script. |
 | `diagnostics` | `[{startLine,startCol,endLine,endCol,severity,message,fileName}]`. Lines are 1-based script lines; columns are 0-based. `severity` is `error`, `warning`, `info` or `hidden`. `fileName` is the script, or a `#load`ed file. |
@@ -98,6 +100,16 @@ A request the host can't read gets a `protocolError` reply (with the `id` if it 
 | `unit` | No value; only the output. |
 | Anything else (single records, unions, tuples, lists of plain values, ...) | `sprintf "%A"` at width 120. |
 
+### HTML
+
+Tables, dictionaries, objects and values with a `text/html` formatter also get HTML (`valueHtml`, or `html` in
+`outputs`), which the plugin shows in an embedded browser: real tables, and nested objects and tables folded into
+`<details>`. Other values (single records, unions, grids, strings, ...) only have text. The markup has no styles of
+its own; the plugin styles its `fc-*` classes to match the editor. `Formatter.DefaultMimeType <- "text/plain"`
+turns HTML off; `Formatter.SetPreferredMimeTypesFor(typeof<T>, "text/plain")` turns it off for one type.
+
+### Limits
+
 Tables and objects follow .NET Interactive's plain-text formatter: sequences show `Formatter.ListExpansionLimit`
 items (20) and then `(N more)`, or `(more)` for a lazy sequence, which is enumerated only that far. Nested objects
 are expanded `Formatter.RecursionLimit` levels deep (6), so reference cycles stop. Table cells are cut to 60
@@ -106,25 +118,31 @@ characters. A property whose getter throws shows `<ExceptionType: message>`.
 ### `display` and `Formatter`
 
 Every session references the host assembly and opens `FsxCells.Interactive`, which has the parts of .NET
-Interactive's formatting API that make sense for text:
+Interactive's formatting API:
 
 ```fsharp
 display x                         // show x under the cell now, in order with printfn output
 x.Display()                       // the same
+x.Display("text/plain")           // text even when it has an HTML layout
 x.Display("application/json")     // System.Text.Json, indented
+displayHtml "<b>hi</b>"           // raw HTML, like Polyglot's HTML(...)
 x.ToDisplayString()               // the text, without showing it
+x.ToDisplayString("text/html")    // the HTML (or the text, if it has no HTML layout)
 
-Formatter.Register(fun (p: Person) -> sprintf "%s (%d)" p.Name p.Age)
+Formatter.Register(fun (p: Person) -> sprintf "%s (%d)" p.Name p.Age)          // text, used in HTML too
+Formatter.Register((fun (r: Rect) -> sprintf "<svg>...</svg>"), "text/html")  // HTML
 Formatter.Register(typedefof<list<_>>, fun o -> "a list")   // open generic types work too
 Formatter.ListExpansionLimit <- 50
 Formatter.RecursionLimit <- 2
+Formatter.DefaultMimeType <- "text/plain"                   // no HTML
+Formatter.SetPreferredMimeTypesFor(typeof<Person>, "text/plain")
 Formatter.ResetToDefault()
 ```
 
 The most specific registered formatter wins: the type itself, then base classes, then interfaces, then `obj`;
-the latest registration wins a tie. Formatters registered for a MIME type other than `text/plain` (Polyglot's
-default was `text/html`) are kept but not used. `display` writes to the cell's `stdout`. These names don't exist
-in plain `dotnet fsi`.
+the latest registration wins a tie. `Register` without a MIME type registers a `text/plain` formatter (Polyglot's
+default was `text/html`). In HTML, a type's `text/html` formatter is used if it has one, else its `text/plain`
+one (escaped). These names don't exist in plain `dotnet fsi`.
 
 ## Session details
 

@@ -209,15 +209,23 @@ let private kindOf (v: obj) =
         elif isPlainObjectType t then PlainObject
         else Other
 
+/// F# names for the F# collection types, as F# writes them.
+let private fsharpNames =
+    dict [ typedefof<list<_>>, "list"; typedefof<Map<_, _>>, "Map"; typedefof<Set<_>>, "Set"; typedefof<option<_>>, "option" ]
+
 let rec private typeDisplayName (t: Type) =
     if t.IsArray then
         typeDisplayName (t.GetElementType()) + "[]"
     elif t.Name.StartsWith "<>f__AnonymousType" then
-        "{| |}"
+        "{| " + String.Join("; ", membersOf t |> Array.map _.Name) + " |}"
     elif t.IsGenericType then
-        let name = t.Name
-        let tick = name.IndexOf '`'
-        let baseName = if tick >= 0 then name.Substring(0, tick) else name
+        let def = t.GetGenericTypeDefinition()
+        let baseName =
+            match fsharpNames.TryGetValue def with
+            | true, n -> n
+            | _ ->
+                let tick = t.Name.IndexOf '`'
+                if tick >= 0 then t.Name.Substring(0, tick) else t.Name
         baseName + "<" + String.Join(", ", t.GetGenericArguments() |> Array.map typeDisplayName) + ">"
     else
         t.Name
@@ -230,13 +238,18 @@ let private collapse (s: string) = newlines.Replace(s, " ")
 let private truncate (width: int) (s: string) =
     if s.Length <= width then s else s.Substring(0, width - 1) + "…"
 
-let private tryCustom (v: obj) =
+let private tryCustomFor (mimeType: string) (v: obj) =
     if isNull v || not Formatter.HasRegistrations then None
-    else Formatter.TryFind(v.GetType()) |> Option.map (fun f -> f v)
+    else Formatter.TryFind(v.GetType(), mimeType) |> Option.map (fun f -> f v)
+
+let private tryCustom = tryCustomFor "text/plain"
+let private tryCustomHtml = tryCustomFor "text/html"
+
+let private hasCustom (v: obj) = (tryCustom v).IsSome || (tryCustomHtml v).IsSome
 
 /// Values that make a table row: records and plain objects without a registered formatter.
 let private isRowValue (v: obj) =
-    not (isNull v) && isRowType (v.GetType()) && (tryCustom v).IsNone
+    not (isNull v) && isRowType (v.GetType()) && not (hasCustom v)
 
 /// Scalars as text; strings and chars are quoted when they are part of a larger value.
 let private scalarText (nested: bool) (v: obj) =
@@ -398,9 +411,9 @@ let private elementType (ty: Type) (v: obj) =
             |> Option.map (fun i -> i.GetGenericArguments()[0])
     find (v.GetType()) |> Option.orElse (find ty)
 
-/// A sequence as a table when its items are records or objects (or have a registered formatter).
-/// Lazy sequences are only enumerated when their element type says they hold rows.
-let private trySequenceTable depth (ty: Type) (v: IEnumerable) =
+/// The items to show of a sequence that makes a table: its items are records or objects (or have a registered
+/// formatter). Lazy sequences are only enumerated when their element type says they hold rows.
+let private tryTableItems (ty: Type) (v: IEnumerable) =
     let elem = elementType ty v
     let rowsByType = elem |> Option.exists isRowType && not Formatter.HasRegistrations
     let inMemory = (tryCount v).IsSome
@@ -412,10 +425,13 @@ let private trySequenceTable depth (ty: Type) (v: IEnumerable) =
         let items, more = takeItems Formatter.ListExpansionLimit v
         let shouldTable =
             rowsByType
-            || items |> Array.exists (fun x -> isRowValue x || (tryCustom x).IsSome)
-        if shouldTable then Some(sequenceTable depth items more) else None
+            || items |> Array.exists (fun x -> isRowValue x || hasCustom x)
+        if shouldTable then Some(items, more) else None
     else
         None
+
+let private trySequenceTable depth (ty: Type) (v: IEnumerable) =
+    tryTableItems ty v |> Option.map (fun (items, more) -> sequenceTable depth items more)
 
 let private indent (lines: string list) = lines |> List.map (fun l -> "  " + l)
 
@@ -490,9 +506,152 @@ let formatValue (value: obj) (ty: Type) : string option =
         | Some s -> Some s
         | None -> Some(formatA value ty)
 
-/// A value as text for a MIME type: text/plain (the default) or application/json.
+// ---------------------------------------------------------------------------------------------------------------
+// HTML, like .NET Interactive's default text/html formatter. The plugin wraps it in a page and styles the
+// fc-* classes; the markup itself has no colours or fonts.
+
+let private esc (s: string) = Net.WebUtility.HtmlEncode s
+
+/// Values shown as text even when HTML is on: strings, grids and point sets have their own text layouts.
+let private hasTextLayout (value: obj) (ty: Type) =
+    match value with
+    | :? string
+    | :? (char[,])
+    | :? (bool[,])
+    | :? (char[][])
+    | :? (string[])
+    | :? (string list)
+    | :? Map<int * int, char> -> true
+    | :? seq<int * int> -> isPointCollectionType ty || isPointCollectionType (value.GetType())
+    | _ -> false
+
+let private numClass (v: obj) = if isNumericValue v then " class=\"fc-num\"" else ""
+
+/// A value inside a table cell or object property. Nested objects and tables fold into <details>.
+let rec private htmlInline (depth: int) (v: obj) : string =
+    match tryCustomHtml v with
+    | Some h -> h
+    | None ->
+        match tryCustom v with
+        | Some s -> esc s
+        | None ->
+            let tooDeep = depth >= Formatter.RecursionLimit
+            match kindOf v with
+            | Null -> "<span class=\"fc-null\">&lt;null&gt;</span>"
+            | Scalar -> esc (scalarText false v)
+            | Record
+            | PlainObject when not tooDeep -> objectHtml depth false v
+            | Dictionary when not tooDeep ->
+                match takeItems Formatter.ListExpansionLimit (v :?> IEnumerable) with
+                | [||], _ -> "{ }"
+                | pairs, more -> folded (collectionSummary v) (dictionaryHtml depth pairs more)
+            | Sequence when not tooDeep ->
+                match tryTableItems (v.GetType()) (v :?> IEnumerable) with
+                | Some(items, more) -> folded (collectionSummary v) (sequenceHtml depth items more)
+                | None -> esc (inlineText depth true v)
+            | Record
+            | PlainObject
+            | Dictionary
+            | Sequence -> esc (typeDisplayName (v.GetType()))
+            | FSharpValue
+            | Other -> esc (inlineText depth false v)
+
+/// "list<Person> (3 items)", or without the count for a lazy sequence.
+and private collectionSummary (v: obj) =
+    let name = typeDisplayName (v.GetType())
+    match tryCount v with
+    | Some 1 -> name + " (1 item)"
+    | Some n -> sprintf "%s (%d items)" name n
+    | None -> name
+
+and private folded (summary: string) (body: string) =
+    "<details class=\"fc-fold\"><summary>" + esc summary + "</summary>" + body + "</details>"
+
+/// An object as a two-column table of its members, under its type name.
+and private objectHtml depth (isOpen: bool) (v: obj) =
+    let rows =
+        membersOf (v.GetType())
+        |> Array.map (fun m ->
+            let x = readMember m v
+            "<tr><th>" + esc m.Name + "</th><td" + numClass x + ">" + htmlInline (depth + 1) x + "</td></tr>")
+    let summary = esc (typeDisplayName (v.GetType()))
+    "<details class=\"fc-object\"" + (if isOpen then " open" else "") + "><summary>" + summary + "</summary>"
+    + "<table class=\"fc-props\"><tbody>" + String.Concat rows + "</tbody></table></details>"
+
+and private tableHtml depth (firstHeader: string) (keys: obj[]) (isIndex: bool) (values: obj[]) (more: string option) =
+    let columns = columnsOf values
+    let hasValueColumn = columns.Length = 0 || values |> Array.exists (not << isRowValue)
+    let sb = StringBuilder()
+    let add (s: string) = sb.Append s |> ignore
+    add "<table class=\"fc-table\"><thead><tr><th>"
+    add (esc firstHeader)
+    add "</th>"
+    for c in columns do add ("<th>" + esc c + "</th>")
+    if hasValueColumn then add "<th>value</th>"
+    add "</tr></thead><tbody>"
+    for i in 0 .. values.Length - 1 do
+        let v = values[i]
+        add "<tr>"
+        if isIndex then add ("<td class=\"fc-index\">" + string i + "</td>")
+        else add ("<td" + numClass keys[i] + ">" + htmlInline (depth + 1) keys[i] + "</td>")
+        let isRow = isRowValue v
+        let members = if isRow then membersOf (v.GetType()) else [||]
+        for c in columns do
+            match members |> Array.tryFind (fun m -> m.Name = c) with
+            | Some m ->
+                let x = readMember m v
+                add ("<td" + numClass x + ">" + htmlInline (depth + 1) x + "</td>")
+            | None -> add "<td></td>"
+        if hasValueColumn then
+            if isRow then add "<td></td>"
+            else add ("<td" + numClass v + ">" + htmlInline (depth + 1) v + "</td>")
+        add "</tr>"
+    add "</tbody></table>"
+    more |> Option.iter (fun m -> add ("<div class=\"fc-more\">" + esc m + "</div>"))
+    sb.ToString()
+
+and private sequenceHtml depth (items: obj[]) (more: string option) =
+    tableHtml depth "#" items true items more
+
+and private dictionaryHtml depth (pairs: obj[]) (more: string option) =
+    let pairs = pairs |> Array.map keyValue
+    tableHtml depth "key" (Array.map fst pairs) false (Array.map snd pairs) more
+
+/// The HTML for a value, or None when it is better shown as text: HTML is off for its type, or the value has no
+/// table or object layout (plain values, single records, unions, ...) or has its own text layout (grids, strings).
+/// `requireHtmlPreferred`: also None when DefaultMimeType or the type's preferred MIME type is text/plain.
+let formatHtmlWith (requireHtmlPreferred: bool) (value: obj) (ty: Type) : string option =
+    let ty = if isNull ty then (if isNull value then typeof<obj> else value.GetType()) else ty
+    if isNull value || ty = typeof<unit> || ty = typeof<Void> then
+        None
+    elif requireHtmlPreferred && Formatter.GetPreferredMimeTypeFor(value.GetType()) <> "text/html" then
+        None
+    else
+        match tryCustomHtml value with
+        | Some h -> Some h
+        | None when (tryCustom value).IsSome || hasTextLayout value ty -> None
+        | None ->
+            match kindOf value with
+            | Dictionary ->
+                match takeItems Formatter.ListExpansionLimit (value :?> IEnumerable) with
+                | [||], _ -> None
+                | pairs, more -> Some(dictionaryHtml 0 pairs more)
+            | Sequence ->
+                tryTableItems ty (value :?> IEnumerable) |> Option.map (fun (items, more) -> sequenceHtml 0 items more)
+            | PlainObject -> Some(objectHtml 0 true value)
+            | _ -> None
+
+/// The HTML for a cell's value, following DefaultMimeType and SetPreferredMimeTypesFor (see formatHtmlWith).
+let formatHtml (value: obj) (ty: Type) = formatHtmlWith true value ty
+
+/// A value as text for a MIME type: text/plain (the default), text/html, or application/json.
+/// For text/html, values without an HTML layout come back as text (see formatHtml).
 let formatAs (mimeType: string) (value: obj) (ty: Type) : string option =
     match mimeType with
     | "application/json" ->
         Some(Text.Json.JsonSerializer.Serialize(value, (if isNull value then typeof<obj> else value.GetType()), Text.Json.JsonSerializerOptions(WriteIndented = true)))
+    | "text/html" ->
+        match formatHtmlWith false value ty with
+        | Some h -> Some h
+        | None -> formatValue value ty
     | _ -> formatValue value ty

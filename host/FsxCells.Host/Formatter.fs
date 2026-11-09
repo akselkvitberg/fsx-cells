@@ -20,9 +20,34 @@ type Formatter private () =
     static let mutable order = 0
     static let mutable listExpansionLimit = defaultListExpansionLimit
     static let mutable recursionLimit = defaultRecursionLimit
+    static let mutable defaultMimeType = "text/html"
+    static let preferredMimeTypes = List<Type * string>()
 
-    /// The MIME type values are shown as. Only text/plain is rendered for now.
-    static member DefaultMimeType = "text/plain"
+    /// The MIME type values are shown as: "text/html" (the default; tables and objects are drawn as HTML in the
+    /// editor) or "text/plain" (everything as text, as in a terminal).
+    static member DefaultMimeType
+        with get () = defaultMimeType
+        and set (v: string) =
+            if v <> "text/html" && v <> "text/plain" then
+                invalidArg "value" "DefaultMimeType must be \"text/html\" or \"text/plain\"."
+            defaultMimeType <- v
+
+    /// Shows values of `ty` (and subtypes) as the first of `mimeTypes` that fsx-cells renders
+    /// ("text/html" or "text/plain"), instead of DefaultMimeType.
+    static member SetPreferredMimeTypesFor(ty: Type, [<ParamArray>] mimeTypes: string[]) =
+        if isNull ty then nullArg "ty"
+        match mimeTypes |> Array.tryFind (fun m -> m = "text/html" || m = "text/plain") with
+        | Some m -> lock preferredMimeTypes (fun () -> preferredMimeTypes.Add((ty, m)))
+        | None -> ()
+
+    /// The MIME type a value of runtime type `ty` is shown as.
+    static member GetPreferredMimeTypeFor(ty: Type) : string =
+        lock preferredMimeTypes (fun () ->
+            preferredMimeTypes
+            |> Seq.rev
+            |> Seq.tryFind (fun (t, _) -> t.IsAssignableFrom ty)
+            |> Option.map snd
+            |> Option.defaultValue defaultMimeType)
 
     /// How many items of a sequence are shown before "(N more)". Default 20.
     static member ListExpansionLimit
@@ -35,7 +60,7 @@ type Formatter private () =
         and set (v: int) = recursionLimit <- max 0 v
 
     /// Shows values of type 'T (and subtypes) as the text `format` returns, also inside tables and objects.
-    /// Formatters for a MIME type other than text/plain are kept but not used yet.
+    /// `mimeType` is "text/plain" (the default) or "text/html", whose text is HTML markup.
     static member Register<'T>(format: Func<'T, string>, ?mimeType: string) =
         Formatter.Register(typeof<'T>, Func<obj, string>(fun o -> format.Invoke(unbox<'T> o)), ?mimeType = mimeType)
 
@@ -47,20 +72,22 @@ type Formatter private () =
             order <- order + 1
             registered.Add
                 { Type = ty
-                  MimeType = defaultArg mimeType Formatter.DefaultMimeType
+                  MimeType = defaultArg mimeType "text/plain"
                   Format = format.Invoke
                   Order = order })
 
-    /// Removes registered formatters and restores the default limits.
+    /// Removes registered formatters and preferred MIME types and restores the default settings.
     static member ResetToDefault() =
         lock registered (fun () -> registered.Clear())
+        lock preferredMimeTypes (fun () -> preferredMimeTypes.Clear())
+        defaultMimeType <- "text/html"
         listExpansionLimit <- defaultListExpansionLimit
         recursionLimit <- defaultRecursionLimit
 
     static member internal HasRegistrations = registered.Count > 0
 
-    /// The most specific text/plain formatter for a runtime type; the latest registration wins ties.
-    static member internal TryFind(ty: Type) : (obj -> string) option =
+    /// The most specific formatter for a runtime type and MIME type; the latest registration wins ties.
+    static member internal TryFind(ty: Type, mimeType: string) : (obj -> string) option =
         if registered.Count = 0 then
             None
         else
@@ -85,7 +112,7 @@ type Formatter private () =
                     | i -> Some(float i)
             lock registered (fun () ->
                 registered
-                |> Seq.filter (fun r -> r.MimeType = Formatter.DefaultMimeType)
+                |> Seq.filter (fun r -> r.MimeType = mimeType)
                 |> Seq.choose (fun r -> score r |> Option.map (fun s -> s, -r.Order, r))
                 |> Seq.sortBy (fun (s, o, _) -> s, o)
                 |> Seq.tryHead
