@@ -94,6 +94,19 @@ type Node(name: string) =
     member _.Name = name
     member val Next: Node = Unchecked.defaultof<_> with get, set
 
+type Card =
+    | A of int
+    | B of string
+
+type Shape =
+    | Circle of radius: float
+    | Rect of width: float * height: float
+    | Empty
+
+type Color =
+    | Red
+    | Green
+
 type Throws() =
     member _.Ok = 1
     member _.Bad: int = failwith "nope"
@@ -176,6 +189,38 @@ module ObjectFormattingTests =
     let ``sequences of plain values keep %A`` () =
         Assert.Equal(Some "[1; 2; 3]", fmt [ 1; 2; 3 ])
         Assert.Equal(Some "[(1, \"a\")]", fmt [ (1, "a") ])
+
+    [<Fact>]
+    let ``a list of unions is a table with the case and its fields`` () =
+        Assert.Equal<string list>(
+            [ "# │ Case │ Item"; "──┼──────┼──────"; "0 │ A    │ 1"; "1 │ B    │ hello" ],
+            lines (fmt [ A 1; B "hello" ]))
+        Assert.Equal<string list>(
+            [ "# │ Case   │ radius │ width │ height"
+              "──┼────────┼────────┼───────┼───────"
+              "0 │ Circle │    1.5 │       │"
+              "1 │ Rect   │        │   2.0 │    3.0"
+              "2 │ Empty  │        │       │" ],
+            lines (fmt [| Circle 1.5; Rect(2.0, 3.0); Empty |]))
+
+    [<Fact>]
+    let ``single unions, options and enum-like unions keep %A`` () =
+        Assert.Equal(Some "A 1", fmt (A 1))
+        Assert.Equal(Some "[Some 1; None]", fmt [ Some 1; None ])
+        Assert.Equal(Some "[Red; Green]", fmt [ Red; Green ])
+
+    [<Fact>]
+    let ``a list of results is a table`` () =
+        Assert.Equal<string list>(
+            [ "# │ Case  │ ResultValue │ ErrorValue"
+              "──┼───────┼─────────────┼───────────"
+              "0 │ Ok    │           1 │"
+              "1 │ Error │             │ x" ],
+            lines (fmt [ Ok 1; Error "x" ]))
+
+    [<Fact>]
+    let ``unions in html tables`` () =
+        Assert.Contains("<th>Case</th><th>Item</th>", (Formatting.formatHtml (box [ A 1; B "x" ]) typeof<Card list>).Value)
 
     [<Fact>]
     let ``mixed items get a value column`` () =

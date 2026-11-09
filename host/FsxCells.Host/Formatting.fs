@@ -174,9 +174,49 @@ let private isPlainObjectType (t: Type) =
     && not (overridesToString t)
     && (membersOf t).Length > 0
 
-/// Types whose values make a table row: records and plain objects.
+/// The union type itself for a union case subclass (e.g. Shape+Circle -> Shape).
+let rec private unionRoot (t: Type) =
+    if not (isNull t.BaseType) && FSharpType.IsUnion(t.BaseType, true) then unionRoot t.BaseType else t
+
+/// Unions whose values make table rows: at least one case has fields. Option, voption and list are not rows,
+/// and neither are enum-like unions (`[Red; Green]` reads better as %A).
+let private isUnionRowType (t: Type) =
+    FSharpType.IsUnion(t, true)
+    && not (typeof<IEnumerable>.IsAssignableFrom t)
+    && (let root = unionRoot t
+        let generic = if root.IsGenericType then root.GetGenericTypeDefinition() else root
+        generic <> typedefof<option<_>>
+        && generic <> typedefof<voption<_>>
+        && FSharpType.GetUnionCases(root, true) |> Array.exists (fun c -> c.GetFields().Length > 0))
+
+/// Types whose values make a table row: records, plain objects and unions with fields.
 let private isRowType (t: Type) =
-    FSharpType.IsRecord(t, true) || isPlainObjectType t
+    FSharpType.IsRecord(t, true) || isPlainObjectType t || isUnionRowType t
+
+let private unionCaseCache = ConcurrentDictionary<Type, (obj -> int) * Member[][]>()
+
+/// The columns of a value in a table row. For a union value: "Case", then the fields of its case
+/// (named fields by name, unnamed ones as Item, Item1, Item2, ...).
+let private rowMembers (v: obj) : Member[] =
+    let t = v.GetType()
+    if FSharpType.IsUnion(t, true) then
+        let readTag, caseMembers =
+            unionCaseCache.GetOrAdd(
+                unionRoot t,
+                fun root ->
+                    let cases = FSharpType.GetUnionCases(root, true)
+                    let readTag = FSharpValue.PreComputeUnionTagReader(root, true)
+                    let members =
+                        cases
+                        |> Array.map (fun c ->
+                            let caseName = { Name = "Case"; Get = fun _ -> box c.Name }
+                            let fields =
+                                c.GetFields() |> Array.map (fun p -> { Name = p.Name; Get = fun o -> p.GetValue o })
+                            Array.append [| caseName |] fields)
+                    readTag, members)
+        caseMembers[readTag v]
+    else
+        membersOf t
 
 type private Kind =
     | Null
@@ -360,14 +400,14 @@ let private columnsOf (values: obj[]) =
     let seen = HashSet<string>()
     for v in values do
         if isRowValue v then
-            for m in membersOf (v.GetType()) do
+            for m in rowMembers v do
                 if seen.Add m.Name then names.Add m.Name
     names.ToArray()
 
 /// The cells of one row value under `columns`: its member values, or the value itself in a "value" column.
 let private rowCells depth (columns: string[]) (hasValueColumn: bool) (v: obj) =
     let isRow = isRowValue v
-    let members = if isRow then membersOf (v.GetType()) else [||]
+    let members = if isRow then rowMembers v else [||]
     [| for c in columns do
            match members |> Array.tryFind (fun m -> m.Name = c) with
            | Some m ->
@@ -595,7 +635,7 @@ and private tableHtml depth (firstHeader: string) (keys: obj[]) (isIndex: bool) 
         if isIndex then add ("<td class=\"fc-index\">" + string i + "</td>")
         else add ("<td" + numClass keys[i] + ">" + htmlInline (depth + 1) keys[i] + "</td>")
         let isRow = isRowValue v
-        let members = if isRow then membersOf (v.GetType()) else [||]
+        let members = if isRow then rowMembers v else [||]
         for c in columns do
             match members |> Array.tryFind (fun m -> m.Name = c) with
             | Some m ->
