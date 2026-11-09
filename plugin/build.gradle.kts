@@ -20,10 +20,13 @@ dependencies {
 
 // Publish the F# host and bundle it into the plugin under <plugin>/host.
 val hostProject = layout.projectDirectory.dir("../host/FsxCells.Host")
+val fsiSettingsProject = layout.projectDirectory.dir("../host/FsxCells.FsiSettings")
 val hostOutput = layout.buildDirectory.dir("host")
 
 val publishHost by tasks.registering(Exec::class) {
     inputs.files(fileTree(hostProject) { exclude("bin/**", "obj/**") })
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(fileTree(fsiSettingsProject) { exclude("bin/**", "obj/**") })
         .withPathSensitivity(PathSensitivity.RELATIVE)
     outputs.dir(hostOutput)
     commandLine(

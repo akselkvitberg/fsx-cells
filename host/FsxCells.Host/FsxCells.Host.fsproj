@@ -16,19 +16,9 @@
     <PackageReference Include="FSharp.Compiler.Service" Version="43.12.403" />
   </ItemGroup>
 
-  <!-- The `fsi` object scripts use (fsi.AddPrinter, fsi.PrintLength, fsi.CommandLineArgs, ...). It isn't on NuGet;
-       it ships with the .NET SDK, so take the building SDK's copy and publish it next to the host. -->
-  <PropertyGroup>
-    <FsiSettingsDll>$(MSBuildExtensionsPath)FSharp/FSharp.Compiler.Interactive.Settings.dll</FsiSettingsDll>
-  </PropertyGroup>
+  <!-- The `fsi` object scripts use; see that project for why it isn't taken from the .NET SDK. -->
   <ItemGroup>
-    <Reference Include="FSharp.Compiler.Interactive.Settings">
-      <HintPath>$(FsiSettingsDll)</HintPath>
-      <Private>true</Private>
-    </Reference>
+    <ProjectReference Include="..\FsxCells.FsiSettings\FsxCells.FsiSettings.fsproj" />
   </ItemGroup>
-  <Target Name="CheckFsiSettingsDll" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(FsiSettingsDll)')">
-    <Error Text="FSharp.Compiler.Interactive.Settings.dll not found at $(FsiSettingsDll). Build with a .NET SDK that includes F#." />
-  </Target>
 
 </Project>

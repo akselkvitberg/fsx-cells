@@ -126,9 +126,11 @@ These are set with F# Interactive's own settings, which also work in `dotnet fsi
 
 ## Session details
 
-- The script's `fsi` object is the real one (`FSharp.Compiler.Interactive.Settings.dll`, copied from the .NET SDK
-  the host is built with), so `fsi.AddPrinter`, `fsi.PrintLength` and `fsi.CommandLineArgs` (the script path)
-  work as in `dotnet fsi`.
-- Options: `--noninteractive --quiet --multiemit`.
+- Scripts get an `fsi` object, so `fsi.AddPrinter`, `fsi.PrintLength` and `fsi.CommandLineArgs` (the script
+  path) work as in `dotnet fsi`. It comes from `FsxCells.FsiSettings`, our own build of F#'s
+  `FSharp.Compiler.Interactive.Settings` assembly (same name and API). The .NET SDK's copy can't be shipped: it's
+  precompiled for the SDK's own platform. If the object can't be set up anyway, cells still run without it and
+  the next cell's output says why.
+- Options: `--noninteractive --quiet --multiemit --gui-`.
 - Evaluations run on a dedicated thread with a 256 MB stack, so deep recursion works.
 - `Console.Out` and `Console.Error` are swapped for a `StringWriter` during each evaluation.

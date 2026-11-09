@@ -407,3 +407,15 @@ type SessionTests() =
             Assert.Equal(Some "Nd\n  Next: Nd", d.ValueText)
         finally
             eval "fsi.PrintLength <- 100\nfsi.PrintDepth <- 100" 1 |> ignore
+
+module FsiSettingsAssemblyTests =
+
+    [<Fact>]
+    let ``the fsi settings assembly is portable IL, not a platform-specific ReadyToRun image`` () =
+        // A ReadyToRun copy (as in the .NET SDK) only loads on the platform it was compiled for.
+        let path = typeof<FSharp.Compiler.Interactive.InteractiveSession>.Assembly.Location
+        Assert.Equal("FSharp.Compiler.Interactive.Settings.dll", Path.GetFileName path)
+        use stream = File.OpenRead path
+        use pe = new System.Reflection.PortableExecutable.PEReader(stream)
+        Assert.Equal(System.Reflection.PortableExecutable.Machine.I386, pe.PEHeaders.CoffHeader.Machine)
+        Assert.Equal(0, pe.PEHeaders.CorHeader.ManagedNativeHeaderDirectory.Size)
