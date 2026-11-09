@@ -47,13 +47,12 @@ Output appears under the cell as a block you can select and copy from (Ctrl+C, o
 Open in Editor Tab). Blocks are at most 20 lines high (25 for HTML) and scroll beyond that. Editing a cell greys out its output
 until you run it again; compile errors and the script line a runtime exception came from get a wavy underline.
 
-## Tables, objects and `display`
+## Tables and objects
 
-Values are shown like Polyglot Notebooks shows them: a sequence of records, objects or union values is a table, a dictionary is
-a key/value table, and a class is its type name followed by its properties. These are drawn as HTML in an embedded
-browser (JCEF), with nested objects and tables you can fold open; other values stay text. Without JCEF, or with
-`Formatter.DefaultMimeType <- "text/plain"`, the tables are drawn in text. `display x` (or `x.Display()`) shows a
-value partway through a cell, and `Formatter.Register` sets how a type is shown, as text or as HTML:
+Values are shown like Polyglot Notebooks shows them: a sequence of records, objects or union values is a table, a
+dictionary is a key/value table, and a class is its type name followed by its properties. These are drawn as HTML in
+an embedded browser (JCEF), with nested objects and tables you can fold open; without JCEF they are drawn as text.
+Other values stay text.
 
 ```fsharp
 type Person = { Name: string; Age: int }
@@ -62,13 +61,18 @@ type Person = { Name: string; Age: int }
 // ──┼───────┼────
 // 0 │ Ada   │  36
 // 1 │ Grace │  45
-
-Formatter.Register(fun (p: Person) -> sprintf "%s (%d)" p.Name p.Age)
-Formatter.Register((fun (p: Person) -> sprintf "<b>%s</b>" p.Name), "text/html")
 ```
 
-See [host/README.md](host/README.md#value-formatting) for the details. `display` and `Formatter` exist only in
-fsx-cells sessions, not in plain `dotnet fsi`.
+There's no fsx-cells-only API: you tune the output with F# Interactive's own settings, so the script still runs
+with `dotnet fsi`:
+
+```fsharp
+fsi.AddPrinter(fun (p: Person) -> sprintf "%s (%d)" p.Name p.Age)   // how a type is shown, also inside tables
+fsi.PrintLength <- 50                                                // rows before "(N more)" (default 20)
+fsi.PrintDepth <- 2                                                  // levels of nested objects (default 6)
+```
+
+See [host/README.md](host/README.md#value-formatting) for the details.
 
 ## Converting Polyglot notebooks
 
@@ -78,8 +82,8 @@ dotnet fsi tools/dib2fsx.fsx <file.dib | folder> [--force]
 
 Writes a `.fsx` next to each `.dib`: F# cells become `// %%` cells, markdown becomes comments, other languages are
 commented out, and the `open`s Polyglot added automatically (`System`, `System.IO`, `System.Text`) are added at the
-top. `display`, `.Display()` and `Formatter` work as they are; lines that use other Polyglot-only APIs such as
-`Kernel` or `HTML` are listed so you can fix them by hand.
+top. Lines that use Polyglot-only APIs such as `display` or `Formatter` are listed so you can fix them by hand
+(`fsi.AddPrinter` replaces `Formatter.Register`).
 
 ## Releases
 

@@ -51,9 +51,8 @@ The response:
 | `id` | The request's id. |
 | `ok` | `false` for compile errors (any diagnostic with severity `error`) and runtime exceptions. |
 | `stdout` | Everything the cell wrote to stdout and stderr, in order, with `\n` line endings. |
-| `outputs` | Only when the cell called `display`: `[{type,text,html?}]` in order, `type` being `text` (printed output) or `display` (a displayed value, with `html` when it has an HTML layout). `stdout` still has all the text. |
 | `valueText` | The cell's value as display text. Missing for `unit` and for declarations (`let x = ...`). |
-| `valueHtml` | The value as HTML, when it has a table or object layout or a `text/html` formatter and HTML is on (see below). |
+| `valueHtml` | The value as HTML, when it has a table or object layout (see below). |
 | `typeName` | F# type of the value, e.g. `int`, `Set<int * int>`, `char array2d`. Missing when `valueText` is. |
 | `error` | Compile errors as `(line,col): message` lines, or the runtime exception as `Type: message` followed by the stack frames from the script. |
 | `diagnostics` | `[{startLine,startCol,endLine,endCol,severity,message,fileName}]`. Lines are 1-based script lines; columns are 0-based. `severity` is `error`, `warning`, `info` or `hidden`. `fileName` is the script, or a `#load`ed file. |
@@ -97,56 +96,39 @@ A request the host can't read gets a `protocolError` reply (with the `id` if it 
 | A sequence of union values (`Result` too) | A table: a `Case` column, then the case's fields: named fields by name, unnamed ones as `Item`, `Item1`, `Item2`. Fields another case doesn't have are left empty. Options and unions whose cases have no fields keep `%A`. |
 | A dictionary (`Map`, `dict`, `Dictionary`, ...) | A table with a `key` column, then the value's fields, or a `value` column. |
 | An object (a class or struct without its own `ToString`) | Its type name, then one indented line per public property and field. Nested objects, tables and dictionaries are indented under the property. |
-| A type with a registered formatter | The registered formatter's text, also inside tables and objects. |
+| A type with an `fsi.AddPrinter` printer | The printer's text, also inside tables and objects. |
 | `unit` | No value; only the output. |
 | Anything else (single records and union values, tuples, lists of plain values, ...) | `sprintf "%A"` at width 120. |
 
 ### HTML
 
-Tables (of records, objects or unions), dictionaries, objects and values with a `text/html` formatter also get HTML (`valueHtml`, or `html` in
-`outputs`), which the plugin shows in an embedded browser: real tables, and nested objects and tables folded into
-`<details>`. Other values (single records, unions, grids, strings, ...) only have text. The markup has no styles of
-its own; the plugin styles its `fc-*` classes to match the editor. `Formatter.DefaultMimeType <- "text/plain"`
-turns HTML off; `Formatter.SetPreferredMimeTypesFor(typeof<T>, "text/plain")` turns it off for one type.
+Tables (of records, objects or unions), dictionaries and objects also get HTML (`valueHtml`), which the plugin
+shows in an embedded browser: real tables, and nested objects and tables folded into `<details>`. Other values
+(single records, unions, grids, strings, values with a printer, ...) only have text. The markup has no styles of
+its own; the plugin styles its `fc-*` classes to match the editor.
 
-### Limits
+### Limits and printers
 
-Tables and objects follow .NET Interactive's plain-text formatter: sequences show `Formatter.ListExpansionLimit`
-items (20) and then `(N more)`, or `(more)` for a lazy sequence, which is enumerated only that far. Nested objects
-are expanded `Formatter.RecursionLimit` levels deep (6), so reference cycles stop. Table cells are cut to 60
-characters. A property whose getter throws shows `<ExceptionType: message>`.
+Tables and objects follow .NET Interactive's plain-text formatter: sequences show 20 items and then `(N more)`, or
+`(more)` for a lazy sequence, which is enumerated only that far. Nested objects are expanded 6 levels deep, so
+reference cycles stop. Table cells are cut to 60 characters. A property whose getter throws shows
+`<ExceptionType: message>`.
 
-### `display` and `Formatter`
+These are set with F# Interactive's own settings, which also work in `dotnet fsi`:
 
-Every session references the host assembly and opens `FsxCells.Interactive`, which has the parts of .NET
-Interactive's formatting API:
+| Setting | Effect |
+|---|---|
+| `fsi.AddPrinter(fun (x: T) -> ...)` | Values of `T` (and subtypes) are shown as that text, at the top and inside tables and objects. An exact type match wins over a base type; otherwise the latest printer wins. |
+| `fsi.PrintLength <- n` | Items shown before `(N more)`. While it has fsi's default (100), fsx-cells uses 20. |
+| `fsi.PrintDepth <- n` | Levels of nested objects. While it has fsi's default (100), fsx-cells uses 6. |
 
-```fsharp
-display x                         // show x under the cell now, in order with printfn output
-x.Display()                       // the same
-x.Display("text/plain")           // text even when it has an HTML layout
-x.Display("application/json")     // System.Text.Json, indented
-displayHtml "<b>hi</b>"           // raw HTML, like Polyglot's HTML(...)
-x.ToDisplayString()               // the text, without showing it
-x.ToDisplayString("text/html")    // the HTML (or the text, if it has no HTML layout)
-
-Formatter.Register(fun (p: Person) -> sprintf "%s (%d)" p.Name p.Age)          // text, used in HTML too
-Formatter.Register((fun (r: Rect) -> sprintf "<svg>...</svg>"), "text/html")  // HTML
-Formatter.Register(typedefof<list<_>>, fun o -> "a list")   // open generic types work too
-Formatter.ListExpansionLimit <- 50
-Formatter.RecursionLimit <- 2
-Formatter.DefaultMimeType <- "text/plain"                   // no HTML
-Formatter.SetPreferredMimeTypesFor(typeof<Person>, "text/plain")
-Formatter.ResetToDefault()
-```
-
-The most specific registered formatter wins: the type itself, then base classes, then interfaces, then `obj`;
-the latest registration wins a tie. `Register` without a MIME type registers a `text/plain` formatter (Polyglot's
-default was `text/html`). In HTML, a type's `text/html` formatter is used if it has one, else its `text/plain`
-one (escaped). These names don't exist in plain `dotnet fsi`.
+`fsi.AddPrintTransformer` and `fsi.AddHtmlPrinter` are not used.
 
 ## Session details
 
+- The script's `fsi` object is the real one (`FSharp.Compiler.Interactive.Settings.dll`, copied from the .NET SDK
+  the host is built with), so `fsi.AddPrinter`, `fsi.PrintLength` and `fsi.CommandLineArgs` (the script path)
+  work as in `dotnet fsi`.
 - Options: `--noninteractive --quiet --multiemit`.
 - Evaluations run on a dedicated thread with a 256 MB stack, so deep recursion works.
 - `Console.Out` and `Console.Error` are swapped for a `StringWriter` during each evaluation.

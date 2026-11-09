@@ -99,11 +99,15 @@ type Session() =
     let mutable scriptPath =
         Path.Combine(Directory.GetCurrentDirectory(), "fsx-cells.fsx")
 
+    // The script's `fsi` object (FSharp.Compiler.Interactive.Settings, published next to the host), so
+    // fsi.AddPrinter, fsi.PrintLength and friends work as in dotnet fsi, and formatting can read them.
+    let config = FsiEvaluationSession.GetDefaultConfiguration(FSharp.Compiler.Interactive.Settings.fsi, true)
+    do Formatting.fsiConfig <- Some config
+
     // Created lazily on the eval thread, after `init` has set the current directory:
     // FSI resolves relative `#load` paths against the directory it was created in.
     let fsi =
         lazy (
-            let config = FsiEvaluationSession.GetDefaultConfiguration()
             let argv = [| "fsi.exe"; "--noninteractive"; "--quiet"; "--multiemit" |]
             let session =
                 FsiEvaluationSession.Create(
@@ -113,17 +117,8 @@ type Session() =
                     new ForwardingWriter(fun () -> Console.Out),
                     new ForwardingWriter(fun () -> Console.Error),
                     collectible = false)
-            // Make `display`, `.Display()` and `Formatter` available, sharing this process's loaded host assembly.
-            let hostAssembly = typeof<FsxCells.Interactive.Formatter>.Assembly.Location
-            let setup = sprintf "#r @\"%s\"\nopen FsxCells.Interactive" (hostAssembly.Replace("\"", "\"\""))
-            let oldOut, oldErr = Console.Out, Console.Error
-            try
-                Console.SetOut TextWriter.Null
-                Console.SetError TextWriter.Null
-                session.EvalInteractionNonThrowing setup |> ignore
-            finally
-                Console.SetOut oldOut
-                Console.SetError oldErr
+            // As in `dotnet fsi script.fsx`: the script path is the only argument. (Create sets it to argv.)
+            FSharp.Compiler.Interactive.Settings.fsi.CommandLineArgs <- [| scriptPath |]
             session)
 
     let normalizeNewlines (s: string) = s.Replace("\r\n", "\n")
@@ -144,12 +139,11 @@ type Session() =
     member _.Eval(code: string, startLine: int) : EvalResult =
         let path = scriptPath
         evalThread.Run(fun () ->
-            let collector = Output.Collector()
+            let captured = new StringWriter()
             let oldOut, oldErr = Console.Out, Console.Error
             let sw = Stopwatch.StartNew()
-            Console.SetOut collector.Writer
-            Console.SetError collector.Writer
-            Output.current <- Some collector
+            Console.SetOut captured
+            Console.SetError captured
             let result, diagnostics =
                 try
                     // Pad with blank lines so line numbers in diagnostics and stack traces are the
@@ -158,7 +152,6 @@ type Session() =
                     fsi.Force().EvalInteractionNonThrowing(text, path)
                 finally
                     Console.Out.Flush()
-                    Output.current <- None
                     Console.SetOut oldOut
                     Console.SetError oldErr
             sw.Stop()
@@ -192,22 +185,8 @@ type Session() =
             let stripStopped (s: string) =
                 if not ok && s.EndsWith "Stopped due to error\n" then s.Substring(0, s.Length - "Stopped due to error\n".Length) else s
 
-            let outputs =
-                let items =
-                    collector.Segments()
-                    |> List.map (function
-                        | Output.Printed text -> { Kind = "text"; Text = normalizeNewlines text; Html = None }
-                        | Output.Displayed(text, html) -> { Kind = "display"; Text = normalizeNewlines text; Html = html })
-                match List.rev items with
-                | last :: rest when last.Kind = "text" ->
-                    match stripStopped last.Text with
-                    | "" -> List.rev rest
-                    | text -> List.rev ({ last with Text = text } :: rest)
-                | _ -> items
-
             { Ok = ok
-              Stdout = stripStopped (normalizeNewlines collector.Text)
-              Outputs = outputs
+              Stdout = stripStopped (normalizeNewlines (captured.ToString()))
               ValueText = valueText |> Option.map normalizeNewlines
               ValueHtml = valueHtml
               TypeName = typeName

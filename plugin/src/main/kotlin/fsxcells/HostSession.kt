@@ -27,9 +27,6 @@ data class Diagnostic(
     val fileName: String,
 )
 
-/** A piece of a cell's output, in order: printed text (`type` "text") or a `display`ed value ("display"). */
-data class OutputItem(val type: String, val text: String, val html: String?)
-
 /** Result of one cell evaluation, as sent by the host (see host/README.md). */
 data class EvalResult(
     val ok: Boolean,
@@ -39,10 +36,8 @@ data class EvalResult(
     val error: String?,
     val elapsedMs: Long,
     val diagnostics: List<Diagnostic> = emptyList(),
-    /** The value as HTML, when it has a table or object layout (or an HTML formatter). */
+    /** The value as HTML, when it has a table or object layout. */
     val valueHtml: String? = null,
-    /** Printed text and displayed values in order; empty when nothing was displayed ([stdout] has it all). */
-    val outputs: List<OutputItem> = emptyList(),
 )
 
 /** One `FsxCells.Host` process, bound to one .fsx file. */
@@ -158,10 +153,6 @@ class HostSession(private val scriptPath: String) {
                             )
                         } ?: emptyList(),
                         valueHtml = obj.string("valueHtml"),
-                        outputs = obj.getAsJsonArray("outputs")?.map { el ->
-                            val o = el.asJsonObject
-                            OutputItem(o.string("type") ?: "text", o.string("text") ?: "", o.string("html"))
-                        } ?: emptyList(),
                     )
                 )
             } catch (e: Exception) {
