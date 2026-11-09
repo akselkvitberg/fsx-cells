@@ -105,13 +105,26 @@ type Session() =
         lazy (
             let config = FsiEvaluationSession.GetDefaultConfiguration()
             let argv = [| "fsi.exe"; "--noninteractive"; "--quiet"; "--multiemit" |]
-            FsiEvaluationSession.Create(
-                config,
-                argv,
-                TextReader.Null, // never let FSI read the protocol's stdin
-                new ForwardingWriter(fun () -> Console.Out),
-                new ForwardingWriter(fun () -> Console.Error),
-                collectible = false))
+            let session =
+                FsiEvaluationSession.Create(
+                    config,
+                    argv,
+                    TextReader.Null, // never let FSI read the protocol's stdin
+                    new ForwardingWriter(fun () -> Console.Out),
+                    new ForwardingWriter(fun () -> Console.Error),
+                    collectible = false)
+            // Make `display`, `.Display()` and `Formatter` available, sharing this process's loaded host assembly.
+            let hostAssembly = typeof<FsxCells.Interactive.Formatter>.Assembly.Location
+            let setup = sprintf "#r @\"%s\"\nopen FsxCells.Interactive" (hostAssembly.Replace("\"", "\"\""))
+            let oldOut, oldErr = Console.Out, Console.Error
+            try
+                Console.SetOut TextWriter.Null
+                Console.SetError TextWriter.Null
+                session.EvalInteractionNonThrowing setup |> ignore
+            finally
+                Console.SetOut oldOut
+                Console.SetError oldErr
+            session)
 
     let normalizeNewlines (s: string) = s.Replace("\r\n", "\n")
 

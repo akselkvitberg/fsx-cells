@@ -47,6 +47,26 @@ Output appears under the cell as a block you can select and copy from (Ctrl+C, o
 Open in Editor Tab). Blocks are at most 20 lines high and scroll beyond that. Editing a cell greys out its output
 until you run it again; compile errors and the script line a runtime exception came from get a wavy underline.
 
+## Tables, objects and `display`
+
+Values are shown like Polyglot Notebooks' plain-text output: a sequence of records or objects is a table, a
+dictionary is a key/value table, and a class is its type name followed by its properties. `display x` (or
+`x.Display()`) shows a value partway through a cell, and `Formatter.Register` sets how a type is shown:
+
+```fsharp
+type Person = { Name: string; Age: int }
+[ { Name = "Ada"; Age = 36 }; { Name = "Grace"; Age = 45 } ]
+// # │ Name  │ Age
+// ──┼───────┼────
+// 0 │ Ada   │  36
+// 1 │ Grace │  45
+
+Formatter.Register(fun (p: Person) -> sprintf "%s (%d)" p.Name p.Age)
+```
+
+See [host/README.md](host/README.md#value-formatting) for the details. `display` and `Formatter` exist only in
+fsx-cells sessions, not in plain `dotnet fsi`.
+
 ## Converting Polyglot notebooks
 
 ```bash
@@ -55,7 +75,8 @@ dotnet fsi tools/dib2fsx.fsx <file.dib | folder> [--force]
 
 Writes a `.fsx` next to each `.dib`: F# cells become `// %%` cells, markdown becomes comments, other languages are
 commented out, and the `open`s Polyglot added automatically (`System`, `System.IO`, `System.Text`) are added at the
-top. Lines that use Polyglot-only APIs such as `display` are listed so you can fix them by hand.
+top. `display`, `.Display()` and `Formatter` work as they are; lines that use other Polyglot-only APIs such as
+`Kernel` or `HTML` are listed so you can fix them by hand.
 
 ## Releases
 

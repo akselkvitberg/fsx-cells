@@ -91,8 +91,40 @@ A request the host can't read gets a `protocolError` reply (with the `id` if it 
 | `bool[,]` | `#` for `true`, `.` for `false`. |
 | `Set<int*int>`, `(int*int)` list / array / seq / `ResizeArray` / `HashSet` | `#` at each point on a `.` grid sized to the bounding box. Points are `(x, y)`: x is the column, y the row. Empty or huge collections fall back to `%A`. |
 | `Map<int*int, char>` | The chars on a grid sized to the bounding box, spaces for missing points. |
+| A sequence of records, anonymous records or objects | A table: a `#` column, then one column per field or property. |
+| A dictionary (`Map`, `dict`, `Dictionary`, ...) | A table with a `key` column, then the value's fields, or a `value` column. |
+| An object (a class or struct without its own `ToString`) | Its type name, then one indented line per public property and field. Nested objects, tables and dictionaries are indented under the property. |
+| A type with a registered formatter | The registered formatter's text, also inside tables and objects. |
 | `unit` | No value; only the output. |
-| Anything else | `sprintf "%A"` at width 120. |
+| Anything else (single records, unions, tuples, lists of plain values, ...) | `sprintf "%A"` at width 120. |
+
+Tables and objects follow .NET Interactive's plain-text formatter: sequences show `Formatter.ListExpansionLimit`
+items (20) and then `(N more)`, or `(more)` for a lazy sequence, which is enumerated only that far. Nested objects
+are expanded `Formatter.RecursionLimit` levels deep (6), so reference cycles stop. Table cells are cut to 60
+characters. A property whose getter throws shows `<ExceptionType: message>`.
+
+### `display` and `Formatter`
+
+Every session references the host assembly and opens `FsxCells.Interactive`, which has the parts of .NET
+Interactive's formatting API that make sense for text:
+
+```fsharp
+display x                         // show x under the cell now, in order with printfn output
+x.Display()                       // the same
+x.Display("application/json")     // System.Text.Json, indented
+x.ToDisplayString()               // the text, without showing it
+
+Formatter.Register(fun (p: Person) -> sprintf "%s (%d)" p.Name p.Age)
+Formatter.Register(typedefof<list<_>>, fun o -> "a list")   // open generic types work too
+Formatter.ListExpansionLimit <- 50
+Formatter.RecursionLimit <- 2
+Formatter.ResetToDefault()
+```
+
+The most specific registered formatter wins: the type itself, then base classes, then interfaces, then `obj`;
+the latest registration wins a tie. Formatters registered for a MIME type other than `text/plain` (Polyglot's
+default was `text/html`) are kept but not used. `display` writes to the cell's `stdout`. These names don't exist
+in plain `dotnet fsi`.
 
 ## Session details
 
