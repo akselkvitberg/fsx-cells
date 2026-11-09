@@ -23,59 +23,19 @@ module FormattingTests =
     let ``unit has no value`` () = Assert.Equal(None, fmt ())
 
     [<Fact>]
-    let ``char 2D array is a grid`` () =
-        let a = array2D [ [ 'a'; 'b'; 'c' ]; [ 'd'; 'e'; 'f' ] ]
-        Assert.Equal(Some "abc\ndef", fmt a)
-
-    [<Fact>]
-    let ``jagged char array is a grid`` () =
-        Assert.Equal(Some "ab\ncd", fmt [| "ab".ToCharArray(); "cd".ToCharArray() |])
-
-    [<Fact>]
-    let ``string array and list are lines`` () =
-        Assert.Equal(Some "x\ny", fmt [| "x"; "y" |])
-        Assert.Equal(Some "x\ny", fmt [ "x"; "y" ])
-
-    [<Fact>]
-    let ``bool 2D array is hash and dot`` () =
-        Assert.Equal(Some "#.\n.#", fmt (array2D [ [ true; false ]; [ false; true ] ]))
-
-    [<Fact>]
-    let ``set of points is a bounding box grid with x as column`` () =
-        let expected = Some "#..\n..#"
-        Assert.Equal(expected, fmt (set [ (0, 0); (2, 1) ]))
-        Assert.Equal(expected, fmt [ (10, 5); (12, 6) ])
-        Assert.Equal(expected, fmt [| (-1, -1); (1, 0) |])
-        Assert.Equal(expected, fmt (Seq.ofList [ (0, 0); (2, 1) ]))
-
-    [<Fact>]
-    let ``sparse points that would make a huge grid fall back to %A`` () =
-        let text = fmt (set [ (0, 0); (3_000_000, 0) ])
-        Assert.Equal(Some "set [(0, 0); (3000000, 0)]", text)
-
-    [<Fact>]
-    let ``a lazy seq of points is enumerated once`` () =
-        let mutable count = 0
-        let points = seq { for i in 0 .. 2 do count <- count + 1; yield (i * 5000, 0) }  // too wide for a grid
-        let text = fmt points
-        Assert.Equal(3, count)
-        Assert.True(text.IsSome && text.Value.Contains "10000")
-
-    [<Fact>]
-    let ``empty set of points falls back to %A`` () =
-        Assert.Equal(Some "set []", fmt (Set.empty<int * int>))
-
-    [<Fact>]
-    let ``map of points to chars is a grid with spaces for gaps`` () =
-        let m = Map [ (0, 0), 'S'; (2, 0), 'E'; (1, 1), '#' ]
-        Assert.Equal(Some "S E\n # ", fmt m)
-
-    [<Fact>]
     let ``other values use %A`` () =
         Assert.Equal(Some "Some 3", fmt (Some 3))
         Assert.Equal(Some "None", fmt (None: int option))
         Assert.Equal(Some "[1; 2; 3]", fmt [ 1; 2; 3 ])
         Assert.Equal(Some "42", fmt 42)
+
+    [<Fact>]
+    let ``char grids, string arrays and point sets have no layout of their own`` () =
+        Assert.Equal(Some "[|\"x\"; \"y\"|]", fmt [| "x"; "y" |])
+        Assert.Equal(Some "[\"x\"; \"y\"]", fmt [ "x"; "y" ])
+        Assert.Equal(Some "set [(0, 0); (2, 1)]", fmt (set [ (0, 0); (2, 1) ]))
+        Assert.Equal(Some "[|[|'a'; 'b'|]|]", fmt [| "ab".ToCharArray() |])
+        Assert.Equal(Some "[['a'; 'b']\n ['c'; 'd']]", fmt (array2D [ [ 'a'; 'b' ]; [ 'c'; 'd' ] ]))
 
     [<Fact>]
     let ``%A wraps at width 120`` () =
@@ -367,10 +327,10 @@ type SessionTests() =
         Assert.Equal(Some "1000000", r.ValueText)
 
     [<Fact>]
-    member _.``grid value from a cell is formatted``() =
+    member _.``value from a cell is formatted with its type``() =
         let r = eval "array2D [ \"#.\"; \".#\" ]" 1
         Assert.True(r.Ok, string r.Error)
-        Assert.Equal(Some "#.\n.#", r.ValueText)
+        Assert.Equal(Some "[['#'; '.']\n ['.'; '#']]", r.ValueText)
         Assert.Equal(Some "char array2d", r.TypeName)
 
     [<Fact>]
@@ -383,8 +343,7 @@ type SessionTests() =
     member _.``fsi works as in dotnet fsi``() =
         let r = eval "fsi.CommandLineArgs" 1
         Assert.True(r.Ok, string r.Error)
-        // A string[] is shown one item per line.
-        Assert.Equal(Some scriptPath, r.ValueText)
+        Assert.Equal(Some(Formatting.formatA (box [| scriptPath |]) typeof<string[]>), r.ValueText)
 
     [<Fact>]
     member _.``fsi.AddPrinter is used at the top, in tables and not as html``() =
