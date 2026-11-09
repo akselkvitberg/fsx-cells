@@ -94,15 +94,16 @@ A request the host can't read gets a `protocolError` reply (with the `id` if it 
 | `Set<int*int>`, `(int*int)` list / array / seq / `ResizeArray` / `HashSet` | `#` at each point on a `.` grid sized to the bounding box. Points are `(x, y)`: x is the column, y the row. Empty or huge collections fall back to `%A`. |
 | `Map<int*int, char>` | The chars on a grid sized to the bounding box, spaces for missing points. |
 | A sequence of records, anonymous records or objects | A table: a `#` column, then one column per field or property. |
+| A sequence of union values (`Result` too) | A table: a `Case` column, then the case's fields: named fields by name, unnamed ones as `Item`, `Item1`, `Item2`. Fields another case doesn't have are left empty. Options and unions whose cases have no fields keep `%A`. |
 | A dictionary (`Map`, `dict`, `Dictionary`, ...) | A table with a `key` column, then the value's fields, or a `value` column. |
 | An object (a class or struct without its own `ToString`) | Its type name, then one indented line per public property and field. Nested objects, tables and dictionaries are indented under the property. |
 | A type with a registered formatter | The registered formatter's text, also inside tables and objects. |
 | `unit` | No value; only the output. |
-| Anything else (single records, unions, tuples, lists of plain values, ...) | `sprintf "%A"` at width 120. |
+| Anything else (single records and union values, tuples, lists of plain values, ...) | `sprintf "%A"` at width 120. |
 
 ### HTML
 
-Tables, dictionaries, objects and values with a `text/html` formatter also get HTML (`valueHtml`, or `html` in
+Tables (of records, objects or unions), dictionaries, objects and values with a `text/html` formatter also get HTML (`valueHtml`, or `html` in
 `outputs`), which the plugin shows in an embedded browser: real tables, and nested objects and tables folded into
 `<details>`. Other values (single records, unions, grids, strings, ...) only have text. The markup has no styles of
 its own; the plugin styles its `fc-*` classes to match the editor. `Formatter.DefaultMimeType <- "text/plain"`

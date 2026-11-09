@@ -49,7 +49,7 @@ until you run it again; compile errors and the script line a runtime exception c
 
 ## Tables, objects and `display`
 
-Values are shown like Polyglot Notebooks shows them: a sequence of records or objects is a table, a dictionary is
+Values are shown like Polyglot Notebooks shows them: a sequence of records, objects or union values is a table, a dictionary is
 a key/value table, and a class is its type name followed by its properties. These are drawn as HTML in an embedded
 browser (JCEF), with nested objects and tables you can fold open; other values stay text. Without JCEF, or with
 `Formatter.DefaultMimeType <- "text/plain"`, the tables are drawn in text. `display x` (or `x.Display()`) shows a

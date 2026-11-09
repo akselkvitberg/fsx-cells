@@ -10,6 +10,14 @@ let people =
 
 people
 
+// %% So is a list of union values: the case, then its fields
+type Shape =
+    | Circle of radius: float
+    | Rect of width: float * height: float
+    | Empty
+
+[ Circle 1.5; Rect(2.0, 3.0); Empty ]
+
 // %% A class is shown by its properties
 type Account(owner: Person, balance: decimal) =
     member _.Owner = owner
