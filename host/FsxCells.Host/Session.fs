@@ -99,17 +99,16 @@ type Session() =
     let mutable scriptPath =
         Path.Combine(Directory.GetCurrentDirectory(), "fsx-cells.fsx")
 
-    // The script's `fsi` object (FSharp.Compiler.Interactive.Settings, published next to the host), so
-    // fsi.AddPrinter, fsi.PrintLength and friends work as in dotnet fsi, and formatting can read them.
-    let config = FsiEvaluationSession.GetDefaultConfiguration(FSharp.Compiler.Interactive.Settings.fsi, true)
-    do Formatting.fsiConfig <- Some config
+    /// Why the script's real `fsi` object couldn't be set up; reported once in the next cell's output.
+    let mutable fsiProblem: string option = None
 
     // Created lazily on the eval thread, after `init` has set the current directory:
     // FSI resolves relative `#load` paths against the directory it was created in.
     let fsi =
         lazy (
-            let argv = [| "fsi.exe"; "--noninteractive"; "--quiet"; "--multiemit" |]
-            let session =
+            // --gui-: no WinForms event loop (the default on Windows); evaluations run on our own thread.
+            let argv = [| "fsi.exe"; "--noninteractive"; "--quiet"; "--multiemit"; "--gui-" |]
+            let create config =
                 FsiEvaluationSession.Create(
                     config,
                     argv,
@@ -117,9 +116,25 @@ type Session() =
                     new ForwardingWriter(fun () -> Console.Out),
                     new ForwardingWriter(fun () -> Console.Error),
                     collectible = false)
-            // As in `dotnet fsi script.fsx`: the script path is the only argument. (Create sets it to argv.)
-            FSharp.Compiler.Interactive.Settings.fsi.CommandLineArgs <- [| scriptPath |]
-            session)
+            // The script's `fsi` object (FSharp.Compiler.Interactive.Settings, published next to the host), so
+            // fsi.AddPrinter, fsi.PrintLength and friends work as in dotnet fsi, and formatting can read them.
+            // In its own function so that a failure to load that assembly is caught below.
+            let withFsiObject () =
+                let config = FsiEvaluationSession.GetDefaultConfiguration(FSharp.Compiler.Interactive.Settings.fsi, true)
+                let session = create config
+                // As in `dotnet fsi script.fsx`: the script path is the only argument. (Create sets it to argv.)
+                FSharp.Compiler.Interactive.Settings.fsi.CommandLineArgs <- [| scriptPath |]
+                Formatting.fsiConfig <- Some config
+                session
+            try
+                withFsiObject ()
+            with e ->
+                // Still run cells, without `fsi` in scripts.
+                let reason = sprintf "%s: %s" (e.GetType().Name) (e.Message.Trim())
+                eprintfn "fsx-cells: could not set up the fsi object, continuing without it: %O" e
+                fsiProblem <- Some reason
+                Formatting.fsiConfig <- None
+                create (FsiEvaluationSession.GetDefaultConfiguration()))
 
     let normalizeNewlines (s: string) = s.Replace("\r\n", "\n")
 
@@ -185,8 +200,16 @@ type Session() =
             let stripStopped (s: string) =
                 if not ok && s.EndsWith "Stopped due to error\n" then s.Substring(0, s.Length - "Stopped due to error\n".Length) else s
 
+            // Said once, in the first cell that runs after the problem.
+            let notice =
+                match fsiProblem with
+                | Some reason ->
+                    fsiProblem <- None
+                    sprintf "fsx-cells: `fsi` is not available in this session (%s). fsi.AddPrinter, fsi.PrintLength and fsi.PrintDepth won't work.\n" reason
+                | None -> ""
+
             { Ok = ok
-              Stdout = stripStopped (normalizeNewlines (captured.ToString()))
+              Stdout = notice + stripStopped (normalizeNewlines (captured.ToString()))
               ValueText = valueText |> Option.map normalizeNewlines
               ValueHtml = valueHtml
               TypeName = typeName

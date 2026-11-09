@@ -56,6 +56,9 @@ class HostSession(private val scriptPath: String) {
      */
     private val outbox = LinkedBlockingQueue<Pair<Int?, String>>()
 
+    /** The host's last stderr lines, shown when it exits unexpectedly (an unhandled exception's message and stack). */
+    private val stderrTail = ArrayDeque<String>()
+
     init {
         val command = hostCommand()
         log.info("Starting fsx-cells host: ${command.joinToString(" ")} for $scriptPath")
@@ -68,9 +71,15 @@ class HostSession(private val scriptPath: String) {
         daemon("fsx-cells host stdout") { readResponses() }
         daemon("fsx-cells host stderr") {
             BufferedReader(InputStreamReader(process.errorStream, StandardCharsets.UTF_8))
-                .forEachLine { log.info("host: $it") }
+                .forEachLine { line ->
+                    log.info("host: $line")
+                    synchronized(stderrTail) {
+                        stderrTail.addLast(line)
+                        while (stderrTail.size > STDERR_TAIL_LINES) stderrTail.removeFirst()
+                    }
+                }
         }
-        process.onExit().thenRun { failPending("The F# host process exited (code ${process.exitValue()}).") }
+        process.onExit().thenRun { failPending(exitMessage()) }
 
         send(null, JsonObject().apply {
             addProperty("type", "init")
@@ -161,6 +170,15 @@ class HostSession(private val scriptPath: String) {
         }
     }
 
+    /** "The F# host process exited (code N)." plus what it last wrote to stderr, if anything. */
+    private fun exitMessage(): String {
+        // Give the stderr reader thread a moment to read what the process wrote just before it exited.
+        Thread.sleep(200)
+        val tail = synchronized(stderrTail) { stderrTail.toList() }
+        val head = "The F# host process exited (code ${process.exitValue()})."
+        return if (tail.isEmpty()) head else head + "\n" + tail.joinToString("\n")
+    }
+
     private fun failPending(message: String) {
         val result = EvalResult(false, "", null, null, message, 0)
         pending.keys.toList().forEach { id -> pending.remove(id)?.complete(result) }
@@ -181,6 +199,7 @@ class HostSession(private val scriptPath: String) {
         const val PLUGIN_ID = "fsxcells"
         const val HOST_ENV = "FSXCELLS_HOST"
         private val STOP: Pair<Int?, String> = Pair(null, "")
+        private const val STDERR_TAIL_LINES = 30
 
         /** `dotnet <FsxCells.Host.dll>`. The DLL is bundled in the plugin; FSXCELLS_HOST overrides it for development. */
         fun hostCommand(): List<String> {

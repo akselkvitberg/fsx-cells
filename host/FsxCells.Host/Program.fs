@@ -22,7 +22,13 @@ let main _ =
         protocolOut.Write '\n'
         protocolOut.Flush()
 
-    use session = new Session()
+    use session =
+        try
+            new Session()
+        with e ->
+            // Goes to the plugin's log and into the message it shows when the host exits.
+            eprintfn "fsx-cells host failed to start: %O" e
+            reraise ()
 
     let rec loop () =
         match protocolIn.ReadLine() with
