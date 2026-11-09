@@ -6,6 +6,7 @@ open System.Collections
 open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Globalization
+open System.IO
 open System.Numerics
 open System.Reflection
 open System.Text
@@ -719,3 +720,99 @@ let formatHtml (value: obj) (ty: Type) : string option =
             tryTableItems ty (value :?> IEnumerable) |> Option.map (fun (items, more) -> sequenceHtml 0 items more)
         | PlainObject -> Some(objectHtml 0 true value)
         | _ -> None
+
+// ---------------------------------------------------------------------------------------------------------------
+// Display annotations: `// %% title [image]` and `[html]` show the cell's value as an image or as raw HTML.
+
+let private typeNameOf (value: obj) = if isNull value then "null" else typeDisplayName (value.GetType())
+
+let private hasBytesAt (prefix: byte[]) (offset: int) (bytes: byte[]) =
+    bytes.Length >= offset + prefix.Length
+    && Seq.forall (fun i -> bytes[offset + i] = prefix[i]) (seq { 0 .. prefix.Length - 1 })
+
+let private ascii (s: string) = Encoding.ASCII.GetBytes s
+
+let private u16be (b: byte[]) i = (int b[i] <<< 8) ||| int b[i + 1]
+let private u16le (b: byte[]) i = int b[i] ||| (int b[i + 1] <<< 8)
+let private i32be (b: byte[]) i = (int b[i] <<< 24) ||| (int b[i + 1] <<< 16) ||| (int b[i + 2] <<< 8) ||| int b[i + 3]
+let private i32le (b: byte[]) i = int b[i] ||| (int b[i + 1] <<< 8) ||| (int b[i + 2] <<< 16) ||| (int b[i + 3] <<< 24)
+
+/// The MIME type of image bytes, from their first bytes. None for anything but PNG, JPEG, GIF, WebP and BMP.
+let sniffImageMime (bytes: byte[]) : string option =
+    if bytes |> hasBytesAt [| 0x89uy; 0x50uy; 0x4Euy; 0x47uy; 0x0Duy; 0x0Auy; 0x1Auy; 0x0Auy |] 0 then Some "image/png"
+    elif bytes |> hasBytesAt [| 0xFFuy; 0xD8uy; 0xFFuy |] 0 then Some "image/jpeg"
+    elif bytes |> hasBytesAt (ascii "GIF87a") 0 || bytes |> hasBytesAt (ascii "GIF89a") 0 then Some "image/gif"
+    elif bytes |> hasBytesAt (ascii "RIFF") 0 && bytes |> hasBytesAt (ascii "WEBP") 8 then Some "image/webp"
+    elif bytes |> hasBytesAt (ascii "BM") 0 then Some "image/bmp"
+    else None
+
+/// Width and height from the image header, for the formats where that is simple. None if it can't be read.
+let private imageSize (mime: string) (b: byte[]) : (int * int) option =
+    match mime with
+    | "image/png" when b.Length >= 24 -> Some(i32be b 16, i32be b 20)
+    | "image/gif" when b.Length >= 10 -> Some(u16le b 6, u16le b 8)
+    | "image/bmp" when b.Length >= 26 -> Some(abs (i32le b 18), abs (i32le b 22))
+    | "image/jpeg" ->
+        // Walk the marker segments up to a start-of-frame one (SOF0..SOF15 except DHT, JPG and DAC).
+        let rec scan i =
+            if i + 3 >= b.Length || b[i] <> 0xFFuy then
+                None
+            else
+                let m = int b[i + 1]
+                if m = 0xFF then scan (i + 1)
+                elif m = 0xD8 || m = 0x01 || (m >= 0xD0 && m <= 0xD7) then scan (i + 2)
+                elif m >= 0xC0 && m <= 0xCF && m <> 0xC4 && m <> 0xC8 && m <> 0xCC then
+                    if i + 8 < b.Length then Some(u16be b (i + 7), u16be b (i + 5)) else None
+                else scan (i + 2 + u16be b (i + 2))
+        scan 2
+    | _ -> None
+
+let private formatSize (n: int) =
+    if n < 1024 then sprintf "%d bytes" n
+    elif n < 1024 * 1024 then sprintf "%d KB" (int (Math.Round(float n / 1024.0)))
+    else (float n / 1048576.0).ToString("0.#", CultureInfo.InvariantCulture) + " MB"
+
+/// (valueText, valueHtml) for image bytes of a known MIME type.
+let private imageResult (mime: string) (bytes: byte[]) =
+    let dims =
+        match imageSize mime bytes with
+        | Some(w, h) when w > 0 && h > 0 -> sprintf ", %d×%d" w h
+        | _ -> ""
+    let text = sprintf "%s%s, %s" mime dims (formatSize bytes.Length)
+    let html = "<img src=\"data:" + mime + ";base64," + Convert.ToBase64String bytes + "\">"
+    text, html
+
+let private looksLikeSvg (s: string) =
+    let t = s.TrimStart()
+    t.StartsWith("<svg", StringComparison.OrdinalIgnoreCase)
+    || (t.StartsWith("<?xml", StringComparison.OrdinalIgnoreCase) && t.Contains("<svg", StringComparison.OrdinalIgnoreCase))
+
+/// The image shown for `[image]`: (valueText, valueHtml), or the error message. Accepts image bytes (PNG, JPEG, GIF,
+/// WebP, BMP), an SVG string, or the path of an image file (relative to the current directory).
+let imageOutput (value: obj) : Result<string * string, string> =
+    let ofBytes (what: string) (bytes: byte[]) =
+        match sniffImageMime bytes with
+        | Some mime -> Ok(imageResult mime bytes)
+        | None -> Error(sprintf "[image] %s is not a PNG, JPEG, GIF, WebP or BMP image" what)
+    match value with
+    | :? (byte[]) as bytes -> ofBytes "the byte array" bytes
+    | :? string as s when looksLikeSvg s -> Ok(imageResult "image/svg+xml" (Encoding.UTF8.GetBytes s))
+    | :? string as path ->
+        try
+            if not (File.Exists path) then
+                Error(sprintf "[image] file not found: %s" path)
+            else
+                let bytes = File.ReadAllBytes path
+                if Path.GetExtension(path).Equals(".svg", StringComparison.OrdinalIgnoreCase) then
+                    Ok(imageResult "image/svg+xml" bytes)
+                else
+                    ofBytes (sprintf "file '%s'" path) bytes
+        with e ->
+            Error(sprintf "[image] could not read '%s': %s" path e.Message)
+    | _ -> Error(sprintf "[image] expects byte[], an SVG string or an image file path, got %s" (typeNameOf value))
+
+/// The output for `[html]`: (valueText, valueHtml) with the string as it is, or the error message.
+let htmlOutput (value: obj) : Result<string * string, string> =
+    match value with
+    | :? string as s -> Ok(s, s)
+    | _ -> Error(sprintf "[html] expects a string, got %s" (typeNameOf value))

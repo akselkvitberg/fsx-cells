@@ -7,13 +7,19 @@ open System.IO
 open System.Text
 open System.Text.Json
 
+/// How a cell's value is shown instead of its usual text: set by `[image]` / `[html]` on the cell marker.
+type Display =
+    | Image
+    | Html
+
 type Request =
     /// Sets the script path (used for #load, __SOURCE_DIRECTORY__ and diagnostics)
     /// and changes the current directory to the script's folder. No response.
     | Init of scriptPath: string
     /// Evaluates code. startLine is the 1-based line in the script of the first line of code.
     /// id is the raw JSON text of the request's id, echoed back as-is.
-    | Eval of id: string * code: string * startLine: int
+    /// display, if set, shows the value as an image or as raw HTML.
+    | Eval of id: string * code: string * startLine: int * display: Display option
 
 type Diagnostic =
     { StartLine: int
@@ -70,7 +76,15 @@ let parseRequest (line: string) : Request =
             match tryProp "startLine" root with
             | Some v -> v.GetInt32()
             | None -> 1
-        Eval(id, code, startLine)
+        let display =
+            match tryProp "display" root with
+            | None -> None
+            | Some v ->
+                match v.GetString() with
+                | "image" -> Some Image
+                | "html" -> Some Html
+                | other -> failwithf "unknown display '%s'" other
+        Eval(id, code, startLine, display)
     | other -> failwithf "unknown request type '%s'" other
 
 let private writeLine (write: Utf8JsonWriter -> unit) =

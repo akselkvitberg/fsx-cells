@@ -89,8 +89,11 @@ class HostSession(private val scriptPath: String) {
 
     val isAlive: Boolean get() = process.isAlive
 
-    /** Evaluates [code]; [startLine] is the 1-based script line of the first line of code. */
-    fun eval(code: String, startLine: Int): CompletableFuture<EvalResult> {
+    /**
+     * Evaluates [code]; [startLine] is the 1-based script line of the first line of code. [display] asks the host to
+     * show the value as an image or HTML.
+     */
+    fun eval(code: String, startLine: Int, display: CellDisplay? = null): CompletableFuture<EvalResult> {
         val id = nextId.getAndIncrement()
         val future = CompletableFuture<EvalResult>()
         pending[id] = future
@@ -99,6 +102,7 @@ class HostSession(private val scriptPath: String) {
             addProperty("id", id)
             addProperty("code", code)
             addProperty("startLine", startLine)
+            if (display != null) addProperty("display", display.wireName)
         })
         return future
     }

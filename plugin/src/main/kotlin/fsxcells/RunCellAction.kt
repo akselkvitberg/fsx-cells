@@ -58,7 +58,7 @@ object CellRunner {
         val stampAtSend = document.modificationStamp
 
         val future = try {
-            HostSessionManager.getInstance(project).sessionFor(file.path).eval(code, cell.firstLine + 1)
+            HostSessionManager.getInstance(project).sessionFor(file.path).eval(code, cell.firstLine + 1, cell.display)
         } catch (e: Exception) {
             key.dispose()
             outputs.show(cell, OutputFormatter.failure(e.message ?: e.toString()))

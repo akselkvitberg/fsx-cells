@@ -155,7 +155,8 @@ type Session() =
         evalThread.Post(fun () -> fsi.Force() |> ignore)
 
     /// Evaluates code whose first line is line `startLine` (1-based) of the script.
-    member _.Eval(code: string, startLine: int) : EvalResult =
+    /// `display` shows the value as an image or raw HTML instead of its usual text.
+    member _.Eval(code: string, startLine: int, ?display: Display) : EvalResult =
         let path = scriptPath
         evalThread.Run(fun () ->
             let captured = new StringWriter()
@@ -189,11 +190,21 @@ type Session() =
                 | Choice1Of2 None -> true, None, None, None, None
                 | Choice1Of2(Some v) ->
                     try
-                        match Formatting.formatValue v.ReflectionValue v.ReflectionType with
-                        | Some text ->
-                            let html = Formatting.formatHtml v.ReflectionValue v.ReflectionType
-                            true, Some text, html, Some(formatTypeName v), None
-                        | None -> true, None, None, None, None
+                        match display with
+                        | Some d ->
+                            let output =
+                                match d with
+                                | Image -> Formatting.imageOutput v.ReflectionValue
+                                | Html -> Formatting.htmlOutput v.ReflectionValue
+                            match output with
+                            | Ok(text, html) -> true, Some text, Some html, Some(formatTypeName v), None
+                            | Error message -> false, None, None, Some(formatTypeName v), Some message
+                        | None ->
+                            match Formatting.formatValue v.ReflectionValue v.ReflectionType with
+                            | Some text ->
+                                let html = Formatting.formatHtml v.ReflectionValue v.ReflectionType
+                                true, Some text, html, Some(formatTypeName v), None
+                            | None -> true, None, None, None, None
                     with e ->
                         false, None, None, Some(formatTypeName v), Some("Formatting the value failed: " + formatException path e)
                 | Choice2Of2 e ->

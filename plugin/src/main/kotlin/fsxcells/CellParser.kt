@@ -1,5 +1,11 @@
 package fsxcells
 
+/** How a cell's value is shown, set by a trailing `[image]` / `[html]` on the marker (Jupytext style). */
+enum class CellDisplay(val wireName: String) {
+    IMAGE("image"),
+    HTML("html"),
+}
+
 /**
  * A cell in an .fsx file.
  *
@@ -8,7 +14,7 @@ package fsxcells
  * @property firstLine  0-based first line of the cell body (the line after the marker).
  * @property lastLine   0-based last line of code (inclusive), with trailing blank lines left out: the output block
  *                      goes under it. Can be < [firstLine] for an empty cell.
- * @property title      Optional title written after `%%` (e.g. `// %% Part 1`).
+ * @property title      Optional title written after `%%` (e.g. `// %% Part 1`), without the display annotation.
  * @property endLine    0-based last line of the cell including trailing blank lines (the line before the next
  *                      marker, or the last line of the file). Decides which cell the caret is in.
  */
@@ -18,6 +24,8 @@ data class Cell(
     val lastLine: Int,
     val title: String?,
     val endLine: Int = lastLine,
+    /** Display annotation at the end of the marker (`// %% Plot [image]`), or null. */
+    val display: CellDisplay? = null,
 ) {
     val isEmpty: Boolean get() = lastLine < firstLine
 
@@ -35,6 +43,18 @@ object CellParser {
         return m.groupValues[1].trim()
     }
 
+    private val annotation = Regex("""\[(image|html)]\s*$""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Splits marker text (as returned by [markerTitle]) into the title and its trailing display annotation. Other
+     * bracket words, like `[part 2]`, stay in the title.
+     */
+    fun splitAnnotation(text: String): Pair<String, CellDisplay?> {
+        val m = annotation.find(text) ?: return text to null
+        val display = CellDisplay.entries.first { it.wireName.equals(m.groupValues[1], ignoreCase = true) }
+        return text.substring(0, m.range.first).trim() to display
+    }
+
     fun isMarker(line: String): Boolean = markerTitle(line) != null
 
     /** Splits [lines] into cells. Text before the first marker becomes a cell only if it has non-blank content. */
@@ -49,7 +69,8 @@ object CellParser {
 
         markers.forEachIndexed { idx, (line, title) ->
             val end = if (idx + 1 < markers.size) markers[idx + 1].first - 1 else lines.size - 1
-            cells += trim(Cell(line, line + 1, end, title.ifEmpty { null }), lines)
+            val (text, display) = splitAnnotation(title)
+            cells += trim(Cell(line, line + 1, end, text.ifEmpty { null }, display = display), lines)
         }
         return cells
     }

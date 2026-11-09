@@ -94,4 +94,48 @@ class CellParserTest {
         assertEquals(cells[1], CellParser.cellAt(cells, 1))
         assertEquals(cells[1], CellParser.cellAt(cells, 3))
     }
+
+    @Test
+    fun `display annotation is split from the title`() {
+        val cells = parse(
+            """
+            // %% Plot [image]
+            1
+            (* cell Table [html] *)
+            2
+            // %% [IMAGE]
+            3
+            (* cell [Html] *)
+            4
+            """
+        )
+        assertEquals(Cell(0, 1, 1, "Plot", display = CellDisplay.IMAGE), cells[0])
+        assertEquals(Cell(2, 3, 3, "Table", display = CellDisplay.HTML), cells[1])
+        assertEquals(Cell(4, 5, 5, null, display = CellDisplay.IMAGE), cells[2])
+        assertEquals(Cell(6, 7, 7, null, display = CellDisplay.HTML), cells[3])
+    }
+
+    @Test
+    fun `unknown bracket words and non-trailing annotations stay in the title`() {
+        val cells = parse(
+            """
+            // %% Day 3 [part 2]
+            1
+            // %% [image] first
+            2
+            // %% Part 1
+            3
+            """
+        )
+        assertEquals(Cell(0, 1, 1, "Day 3 [part 2]"), cells[0])
+        assertEquals(Cell(2, 3, 3, "[image] first"), cells[1])
+        assertEquals(Cell(4, 5, 5, "Part 1"), cells[2])
+        assertNull(cells[2].display)
+    }
+
+    @Test
+    fun `markers with an annotation are still markers`() {
+        assertEquals("Plot [image]", CellParser.markerTitle("// %% Plot [image]"))
+        assertEquals("[html]", CellParser.markerTitle("(* cell [html] *)"))
+    }
 }
