@@ -12,32 +12,23 @@ data class HtmlTheme(
     val dark: Boolean,
 )
 
-/** Builds the HTML shown in an output block when a cell's result or a displayed value has HTML. */
+/** Builds the HTML shown in an output block when a cell's value has HTML (tables and objects). */
 object HtmlPage {
 
     /**
-     * The page body for [result], or null when nothing in it has HTML (then the text block is used).
-     * Printed text and values without HTML are kept as preformatted text, in order.
+     * The page body for [result], or null when its value has no HTML (then the text block is used).
+     * Printed output and errors are kept as preformatted text around the value.
      */
     fun body(result: EvalResult): String? {
-        if (result.valueHtml == null && result.outputs.none { it.html != null }) return null
+        if (result.valueHtml == null) return null
         val sb = StringBuilder()
         fun pre(text: String, cssClass: String? = null) {
             val t = text.trimEnd('\n', '\r')
             if (t.isEmpty()) return
             sb.append(if (cssClass == null) "<pre>" else "<pre class=\"$cssClass\">").append(escape(t)).append("</pre>")
         }
-        if (result.outputs.isNotEmpty()) {
-            for (o in result.outputs) {
-                if (o.html != null) sb.append("<div class=\"fc-display\">").append(o.html).append("</div>") else pre(o.text)
-            }
-        } else {
-            pre(result.stdout)
-        }
-        when {
-            result.valueHtml != null -> sb.append("<div class=\"fc-value\">").append(result.valueHtml).append("</div>")
-            result.valueText != null -> pre(result.valueText)
-        }
+        pre(result.stdout)
+        sb.append("<div class=\"fc-value\">").append(result.valueHtml).append("</div>")
         result.error?.let { pre(it, "fc-error") }
         return sb.toString()
     }
@@ -59,7 +50,7 @@ body { font-family: '$font', monospace; font-size: ${theme.fontSizePx}px; line-h
 #fc-root { padding: 2px 8px 4px 8px; overflow-x: auto; }
 pre { margin: 0; font: inherit; white-space: pre; }
 .fc-error { color: ${css(theme.error)}; }
-.fc-display, .fc-value { margin: 2px 0; }
+.fc-value { margin: 2px 0; }
 table { border-collapse: collapse; font: inherit; }
 th, td { border: 1px solid $border; padding: 1px 6px; text-align: left; vertical-align: top; white-space: pre; }
 thead th { background: $header; font-weight: 600; position: sticky; top: 0; }

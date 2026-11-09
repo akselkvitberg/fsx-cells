@@ -10,9 +10,8 @@
 // - #!magic lines inside F# cells (e.g. #!time) -> commented out
 // - `open System`, `open System.IO`, `open System.Text` are added at the top: Polyglot's F# kernel opened
 //   these automatically, plain `dotnet fsi` does not.
-// `display`, `.Display()` and `Formatter` work in fsx-cells (not in plain `dotnet fsi`). Other Polyglot-only
-// APIs such as `Kernel` and `HTML` are left as they are; the lines that use them are listed so you can fix
-// them by hand.
+// Polyglot-only calls like `display` are left as they are; the lines that use them are listed so you can
+// fix them by hand.
 
 open System
 open System.IO
@@ -82,9 +81,9 @@ let convert (text: string) =
 
     String.Join("\n", out).TrimEnd() + "\n"
 
-/// Polyglot-only APIs that fsx-cells doesn't provide.
+/// Polyglot-only APIs that won't exist in a plain script.
 let polyglotOnly =
-    Text.RegularExpressions.Regex(@"\b(Kernel\.|DisplayedValue|HTML\(|PocketView|\.DisplayTable\()")
+    Text.RegularExpressions.Regex(@"\b(display|Kernel\.|DisplayedValue|\.Display\(|HTML\(|Formatter\.|PocketView)")
 
 let warnings (fsx: string) =
     fsx.Split('\n')

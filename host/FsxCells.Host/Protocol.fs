@@ -24,17 +24,9 @@ type Diagnostic =
       Message: string
       FileName: string }
 
-/// A piece of a cell's output, in order: printed text, or a value passed to `display`.
-type OutputItem =
-    { Kind: string // "text" or "display"
-      Text: string
-      Html: string option }
-
 type EvalResult =
     { Ok: bool
       Stdout: string
-      /// Printed text and displayed values in order; empty when nothing was displayed (Stdout has it all).
-      Outputs: OutputItem list
       ValueText: string option
       ValueHtml: string option
       TypeName: string option
@@ -97,15 +89,6 @@ let serializeEvalResponse (id: string) (r: EvalResult) : string =
         w.WriteRawValue(id)
         w.WriteBoolean("ok", r.Ok)
         w.WriteString("stdout", r.Stdout)
-        if not r.Outputs.IsEmpty then
-            w.WriteStartArray("outputs")
-            for o in r.Outputs do
-                w.WriteStartObject()
-                w.WriteString("type", o.Kind)
-                w.WriteString("text", o.Text)
-                o.Html |> Option.iter (fun h -> w.WriteString("html", h))
-                w.WriteEndObject()
-            w.WriteEndArray()
         r.ValueText |> Option.iter (fun v -> w.WriteString("valueText", v))
         r.ValueHtml |> Option.iter (fun v -> w.WriteString("valueHtml", v))
         r.TypeName |> Option.iter (fun v -> w.WriteString("typeName", v))

@@ -1,5 +1,5 @@
-// Tables, objects, `display` and `Formatter`, like Polyglot Notebooks. Tables and objects are HTML when JCEF works.
-// `display` and `Formatter` exist only in fsx-cells sessions, so this file doesn't run under plain `dotnet fsi`.
+// Tables and objects, like Polyglot Notebooks. In fsx-cells they are drawn as HTML (or text without JCEF).
+// Everything here is plain F#: `dotnet fsi samples/formatting.fsx` runs it too, printing with %A.
 
 // %% A list of records is a table
 type Person = { Name: string; Age: int; Languages: string list }
@@ -29,29 +29,15 @@ Account(people[1], 1200m)
 // %% Dictionaries are key/value tables
 Map [ "ada", people[0]; "grace", people[1] ]
 
-// %% display shows values partway through a cell
-for p in people do
-    printfn "Showing %s" p.Name
-    display p
-people.Head.Display("application/json")
-
-// %% Long and lazy sequences stop after Formatter.ListExpansionLimit items
+// %% Long and lazy sequences stop after 20 rows, or fsi.PrintLength if you set it
 seq { for i in 1..1_000_000 -> {| N = i; Square = int64 i * int64 i |} }
 
-// %% Custom formatters apply everywhere, including inside tables
-Formatter.Register(fun (p: Person) -> sprintf "%s, %d" p.Name p.Age)
-[ Account(people[0], 10m); Account(people[1], 20m) ]
-
-// %% HTML formatters and raw HTML
+// %% fsi.AddPrinter sets how a type is shown, also inside tables (and in dotnet fsi)
 type Swatch = { Color: string }
-Formatter.Register((fun (s: Swatch) -> sprintf "<span style='background:%s'>&nbsp;&nbsp;&nbsp;&nbsp;</span> %s" s.Color s.Color), "text/html")
-displayHtml "<b>Swatches</b>"
-[ { Color = "tomato" }; { Color = "teal" }; { Color = "gold" } ]
+fsi.AddPrinter(fun (s: Swatch) -> sprintf "■ %s" s.Color)
 
-// %% Text only
-Formatter.DefaultMimeType <- "text/plain"
-people
+[ {| Name = "Sky"; Swatch = { Color = "blue" } |}; {| Name = "Sun"; Swatch = { Color = "gold" } |} ]
 
-// %% Back to the defaults
-Formatter.ResetToDefault()
-people
+// %% fsi.PrintLength and fsi.PrintDepth set how many rows and how deep nested objects go
+fsi.PrintLength <- 3
+[ for i in 1..10 -> {| N = i |} ]

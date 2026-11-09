@@ -11,7 +11,7 @@ open System.Reflection
 open System.Text
 open System.Text.RegularExpressions
 open Microsoft.FSharp.Reflection
-open FsxCells.Interactive
+open FSharp.Compiler.Interactive.Shell
 
 /// Points grids larger than this many cells fall back to %A.
 let maxGridCells = 4_000_000
@@ -278,14 +278,63 @@ let private collapse (s: string) = newlines.Replace(s, " ")
 let private truncate (width: int) (s: string) =
     if s.Length <= width then s else s.Substring(0, width - 1) + "…"
 
-let private tryCustomFor (mimeType: string) (v: obj) =
-    if isNull v || not Formatter.HasRegistrations then None
-    else Formatter.TryFind(v.GetType(), mimeType) |> Option.map (fun f -> f v)
+// ---------------------------------------------------------------------------------------------------------------
+// Settings from the session's `fsi` object, so scripts configure output with plain F# that also runs in dotnet fsi.
 
-let private tryCustom = tryCustomFor "text/plain"
-let private tryCustomHtml = tryCustomFor "text/html"
+/// The running session's configuration, which reads the script's `fsi` object (set by Session; None in tests).
+let mutable fsiConfig: FsiEvaluationSessionHostConfig option = None
 
-let private hasCustom (v: obj) = (tryCustom v).IsSome || (tryCustomHtml v).IsSome
+/// Rows shown before "(N more)" unless the script sets fsi.PrintLength.
+let defaultListLimit = 20
+/// Levels of nested objects expanded unless the script sets fsi.PrintDepth.
+let defaultDepthLimit = 6
+
+// fsi's own defaults; a script that leaves them alone gets ours, which suit tables better.
+let private fsiDefaultPrintLength = 100
+let private fsiDefaultPrintDepth = 100
+
+/// How many items of a sequence are shown: fsi.PrintLength if the script changed it.
+let listLimit () =
+    match fsiConfig with
+    | Some c when c.PrintLength <> fsiDefaultPrintLength -> max 0 c.PrintLength
+    | _ -> defaultListLimit
+
+/// How deep nested objects are expanded: fsi.PrintDepth if the script changed it.
+let depthLimit () =
+    match fsiConfig with
+    | Some c when c.PrintDepth <> fsiDefaultPrintDepth -> max 0 c.PrintDepth
+    | _ -> defaultDepthLimit
+
+/// Printers added with fsi.AddPrinter, latest first.
+let private printers () =
+    match fsiConfig with
+    | None -> []
+    | Some c ->
+        c.AddedPrinters
+        |> List.choose (function
+            | Choice1Of2(ty, f) -> Some(ty, f)
+            | Choice2Of2 _ -> None)
+
+/// The text of an fsi.AddPrinter printer for the value's type: an exact match, else the latest one for a base type
+/// or interface.
+let private tryCustom (v: obj) =
+    if isNull v then
+        None
+    else
+        match printers () with
+        | [] -> None
+        | ps ->
+            let t = v.GetType()
+            ps
+            |> List.tryFind (fun (ty, _) -> ty = t)
+            |> Option.orElse (ps |> List.tryFind (fun (ty, _) -> ty.IsAssignableFrom t))
+            |> Option.map (fun (_, f) -> f v)
+
+let private hasCustom (v: obj) = (tryCustom v).IsSome
+
+/// Whether an fsi.AddPrinter printer could apply to values of type `t` (or its subtypes).
+let private mayHavePrinter (t: Type) =
+    printers () |> List.exists (fun (ty, _) -> ty.IsAssignableFrom t || t.IsAssignableFrom ty)
 
 /// Values that make a table row: records and plain objects without a registered formatter.
 let private isRowValue (v: obj) =
@@ -342,7 +391,7 @@ let rec private inlineText (depth: int) (nested: bool) (v: obj) : string =
     match tryCustom v with
     | Some s -> collapse s
     | None ->
-        let tooDeep = depth >= Formatter.RecursionLimit
+        let tooDeep = depth >= depthLimit ()
         match kindOf v with
         | Null -> "<null>"
         | Scalar -> scalarText nested v
@@ -359,7 +408,7 @@ let rec private inlineText (depth: int) (nested: bool) (v: obj) : string =
         | Sequence when tooDeep -> typeDisplayName (v.GetType())
         | Dictionary ->
             // Only as many items as fit in a cell anyway.
-            let items, more = takeItems (min Formatter.ListExpansionLimit 10) (v :?> IEnumerable)
+            let items, more = takeItems (min (listLimit ()) 10) (v :?> IEnumerable)
             let texts =
                 items
                 |> Array.map (fun p ->
@@ -367,7 +416,7 @@ let rec private inlineText (depth: int) (nested: bool) (v: obj) : string =
                     inlineText (depth + 1) true k + ": " + inlineText (depth + 1) true value)
             "{ " + String.Join("; ", Array.append texts (Option.toArray more)) + " }"
         | Sequence ->
-            let items, more = takeItems (min Formatter.ListExpansionLimit 20) (v :?> IEnumerable)
+            let items, more = takeItems (min (listLimit ()) 20) (v :?> IEnumerable)
             let texts = items |> Array.map (inlineText (depth + 1) true)
             "[" + String.Join("; ", Array.append texts (Option.toArray more)) + "]"
         | Other -> collapse (string v)
@@ -455,14 +504,14 @@ let private elementType (ty: Type) (v: obj) =
 /// formatter). Lazy sequences are only enumerated when their element type says they hold rows.
 let private tryTableItems (ty: Type) (v: IEnumerable) =
     let elem = elementType ty v
-    let rowsByType = elem |> Option.exists isRowType && not Formatter.HasRegistrations
+    let rowsByType = elem |> Option.exists (fun t -> isRowType t && not (mayHavePrinter t))
     let inMemory = (tryCount v).IsSome
     let mightHoldRows =
         match elem with
         | None -> true
-        | Some t -> t = typeof<obj> || t.IsInterface || t.IsAbstract || Formatter.HasRegistrations
+        | Some t -> t = typeof<obj> || t.IsInterface || t.IsAbstract || mayHavePrinter t
     if rowsByType || (inMemory && mightHoldRows) then
-        let items, more = takeItems Formatter.ListExpansionLimit v
+        let items, more = takeItems (listLimit ()) v
         let shouldTable =
             rowsByType
             || items |> Array.exists (fun x -> isRowValue x || hasCustom x)
@@ -490,7 +539,7 @@ and private memberLines depth (name: string) (v: obj) : string list =
     match tryCustom v with
     | Some s -> block (List.ofArray (s.Replace("\r\n", "\n").Split '\n'))
     | None ->
-        let tooDeep = depth >= Formatter.RecursionLimit
+        let tooDeep = depth >= depthLimit ()
         match kindOf v with
         | Record
         | PlainObject when not tooDeep ->
@@ -498,7 +547,7 @@ and private memberLines depth (name: string) (v: obj) : string list =
             | header :: members -> (name + ": " + header) :: members
             | [] -> single ""
         | Dictionary when not tooDeep ->
-            let pairs, more = takeItems Formatter.ListExpansionLimit (v :?> IEnumerable)
+            let pairs, more = takeItems (listLimit ()) (v :?> IEnumerable)
             if pairs.Length = 0 then single "{ }" else block (dictionaryTable depth pairs more)
         | Sequence when not tooDeep ->
             match trySequenceTable depth (v.GetType()) (v :?> IEnumerable) with
@@ -537,7 +586,7 @@ let formatValue (value: obj) (ty: Type) : string option =
             | _ ->
                 match kindOf value with
                 | Dictionary ->
-                    let pairs, more = takeItems Formatter.ListExpansionLimit (value :?> IEnumerable)
+                    let pairs, more = takeItems (listLimit ()) (value :?> IEnumerable)
                     if pairs.Length = 0 then None else Some(joinLines (dictionaryTable 0 pairs more))
                 | Sequence -> trySequenceTable 0 ty (value :?> IEnumerable) |> Option.map joinLines
                 | PlainObject -> Some(joinLines (objectTree 0 value))
@@ -569,32 +618,29 @@ let private numClass (v: obj) = if isNumericValue v then " class=\"fc-num\"" els
 
 /// A value inside a table cell or object property. Nested objects and tables fold into <details>.
 let rec private htmlInline (depth: int) (v: obj) : string =
-    match tryCustomHtml v with
-    | Some h -> h
+    match tryCustom v with
+    | Some s -> esc s
     | None ->
-        match tryCustom v with
-        | Some s -> esc s
-        | None ->
-            let tooDeep = depth >= Formatter.RecursionLimit
-            match kindOf v with
-            | Null -> "<span class=\"fc-null\">&lt;null&gt;</span>"
-            | Scalar -> esc (scalarText false v)
-            | Record
-            | PlainObject when not tooDeep -> objectHtml depth false v
-            | Dictionary when not tooDeep ->
-                match takeItems Formatter.ListExpansionLimit (v :?> IEnumerable) with
-                | [||], _ -> "{ }"
-                | pairs, more -> folded (collectionSummary v) (dictionaryHtml depth pairs more)
-            | Sequence when not tooDeep ->
-                match tryTableItems (v.GetType()) (v :?> IEnumerable) with
-                | Some(items, more) -> folded (collectionSummary v) (sequenceHtml depth items more)
-                | None -> esc (inlineText depth true v)
-            | Record
-            | PlainObject
-            | Dictionary
-            | Sequence -> esc (typeDisplayName (v.GetType()))
-            | FSharpValue
-            | Other -> esc (inlineText depth false v)
+        let tooDeep = depth >= depthLimit ()
+        match kindOf v with
+        | Null -> "<span class=\"fc-null\">&lt;null&gt;</span>"
+        | Scalar -> esc (scalarText false v)
+        | Record
+        | PlainObject when not tooDeep -> objectHtml depth false v
+        | Dictionary when not tooDeep ->
+            match takeItems (listLimit ()) (v :?> IEnumerable) with
+            | [||], _ -> "{ }"
+            | pairs, more -> folded (collectionSummary v) (dictionaryHtml depth pairs more)
+        | Sequence when not tooDeep ->
+            match tryTableItems (v.GetType()) (v :?> IEnumerable) with
+            | Some(items, more) -> folded (collectionSummary v) (sequenceHtml depth items more)
+            | None -> esc (inlineText depth true v)
+        | Record
+        | PlainObject
+        | Dictionary
+        | Sequence -> esc (typeDisplayName (v.GetType()))
+        | FSharpValue
+        | Other -> esc (inlineText depth false v)
 
 /// "list<Person> (3 items)", or without the count for a lazy sequence.
 and private collectionSummary (v: obj) =
@@ -657,41 +703,19 @@ and private dictionaryHtml depth (pairs: obj[]) (more: string option) =
     let pairs = pairs |> Array.map keyValue
     tableHtml depth "key" (Array.map fst pairs) false (Array.map snd pairs) more
 
-/// The HTML for a value, or None when it is better shown as text: HTML is off for its type, or the value has no
-/// table or object layout (plain values, single records, unions, ...) or has its own text layout (grids, strings).
-/// `requireHtmlPreferred`: also None when DefaultMimeType or the type's preferred MIME type is text/plain.
-let formatHtmlWith (requireHtmlPreferred: bool) (value: obj) (ty: Type) : string option =
+/// The HTML for a value, or None when it is better shown as text: it has no table or object layout (plain values,
+/// single records and unions, ...), its own text layout (grids, strings), or an fsi.AddPrinter printer.
+let formatHtml (value: obj) (ty: Type) : string option =
     let ty = if isNull ty then (if isNull value then typeof<obj> else value.GetType()) else ty
-    if isNull value || ty = typeof<unit> || ty = typeof<Void> then
-        None
-    elif requireHtmlPreferred && Formatter.GetPreferredMimeTypeFor(value.GetType()) <> "text/html" then
+    if isNull value || ty = typeof<unit> || ty = typeof<Void> || (tryCustom value).IsSome || hasTextLayout value ty then
         None
     else
-        match tryCustomHtml value with
-        | Some h -> Some h
-        | None when (tryCustom value).IsSome || hasTextLayout value ty -> None
-        | None ->
-            match kindOf value with
-            | Dictionary ->
-                match takeItems Formatter.ListExpansionLimit (value :?> IEnumerable) with
-                | [||], _ -> None
-                | pairs, more -> Some(dictionaryHtml 0 pairs more)
-            | Sequence ->
-                tryTableItems ty (value :?> IEnumerable) |> Option.map (fun (items, more) -> sequenceHtml 0 items more)
-            | PlainObject -> Some(objectHtml 0 true value)
-            | _ -> None
-
-/// The HTML for a cell's value, following DefaultMimeType and SetPreferredMimeTypesFor (see formatHtmlWith).
-let formatHtml (value: obj) (ty: Type) = formatHtmlWith true value ty
-
-/// A value as text for a MIME type: text/plain (the default), text/html, or application/json.
-/// For text/html, values without an HTML layout come back as text (see formatHtml).
-let formatAs (mimeType: string) (value: obj) (ty: Type) : string option =
-    match mimeType with
-    | "application/json" ->
-        Some(Text.Json.JsonSerializer.Serialize(value, (if isNull value then typeof<obj> else value.GetType()), Text.Json.JsonSerializerOptions(WriteIndented = true)))
-    | "text/html" ->
-        match formatHtmlWith false value ty with
-        | Some h -> Some h
-        | None -> formatValue value ty
-    | _ -> formatValue value ty
+        match kindOf value with
+        | Dictionary ->
+            match takeItems (listLimit ()) (value :?> IEnumerable) with
+            | [||], _ -> None
+            | pairs, more -> Some(dictionaryHtml 0 pairs more)
+        | Sequence ->
+            tryTableItems ty (value :?> IEnumerable) |> Option.map (fun (items, more) -> sequenceHtml 0 items more)
+        | PlainObject -> Some(objectHtml 0 true value)
+        | _ -> None
