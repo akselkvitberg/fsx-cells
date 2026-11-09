@@ -39,7 +39,8 @@ let private run () =
             try
                 match parseRequest line with
                 | Init path -> session.Init path
-                | Eval(id, code, startLine) -> send (serializeEvalResponse id (session.Eval(code, startLine)))
+                | Eval(id, code, startLine, display) ->
+                    send (serializeEvalResponse id (session.Eval(code, startLine, ?display = display)))
             with e ->
                 send (serializeProtocolError (tryReadId line) e.Message)
             loop ()

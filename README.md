@@ -76,6 +76,30 @@ fsi.PrintDepth <- 2                                                  // levels o
 
 See [host/README.md](host/README.md#value-formatting) for the details.
 
+## Images and HTML
+
+A cell marker can end with a display annotation in brackets, as in Jupytext's percent format
+(`# %% title [markdown]`). Under plain `dotnet fsi` the marker is a comment, so the script is unchanged.
+
+```fsharp
+// %% Plot [image]
+File.ReadAllBytes "plot.png"
+
+(* cell Report [html] *)
+"<h3>Done</h3><b>12</b> rows"
+
+// %% [image]
+"<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><circle cx='20' cy='20' r='18'/></svg>"
+```
+
+- `[image]` shows the value as an image: a `byte[]` with a PNG, JPEG, GIF, WebP or BMP image, an SVG string, or the
+  path of an image file (relative to the script's folder).
+- `[html]` shows a string as HTML.
+
+The words are not case-sensitive, and only a trailing `[image]` or `[html]` counts: in `// %% Day 3 [part 2]`
+the brackets are part of the title. A value of the wrong kind gives an error under the cell. See
+[host/README.md](host/README.md#display-annotations) for the details.
+
 ## Converting Polyglot notebooks
 
 ```bash

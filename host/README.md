@@ -52,6 +52,7 @@ the F# session is created after it (in the background, to warm up), and FSI reso
 | `id` | String or number; echoed back unchanged in the response. |
 | `code` | The cell body (without the marker line). |
 | `startLine` | 1-based line in the script of the first line of `code`. Optional, defaults to 1. |
+| `display` | `"image"` or `"html"`: show the value as an image or as raw HTML (see [Display annotations](#display-annotations)). Optional. Any other value is a `protocolError`. |
 
 The response:
 
@@ -120,6 +121,20 @@ Tables (of records, objects or unions), dictionaries and objects also get HTML (
 shows in an embedded browser: real tables, and nested objects and tables folded into `<details>`. Other values
 (single records, unions, grids, strings, values with a printer, ...) only have text. The markup has no styles of
 its own; the plugin styles its `fc-*` classes to match the editor.
+
+### Display annotations
+
+The plugin sends `display` when the cell's marker ends with `[image]` or `[html]` (`// %% Plot [image]`). The
+value is then not formatted as above: it is converted to `valueHtml`, with a short `valueText` for when there is
+no browser view. `typeName` is the value's type as usual. A cell without a value (`unit`, declarations) has no
+output. A value of the wrong kind fails the cell (`ok: false`, with the message in `error`).
+
+| `display` | Accepted values | `valueHtml` | `valueText` |
+|---|---|---|---|
+| `image` | `byte[]` holding a PNG, JPEG, GIF, WebP or BMP image (the type is read from the first bytes) | `<img src="data:<mime>;base64,...">` | `image/png, 640×480, 23 KB` (no dimensions for WebP and SVG) |
+| `image` | A `string` starting with `<svg`, or with `<?xml` and containing `<svg` | an `<img>` with an `image/svg+xml` data URI | `image/svg+xml, 1 KB` |
+| `image` | Any other `string`: the path of an image file, relative to the script's folder. `.svg` files are SVG, others are read by their first bytes. | as above | as above |
+| `html` | A `string` | the string, unchanged | the string, so the markup shows when there is no browser view |
 
 ### Limits and printers
 

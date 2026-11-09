@@ -50,7 +50,8 @@ body { font-family: '$font', monospace; font-size: ${theme.fontSizePx}px; line-h
 #fc-root { padding: 2px 8px 4px 8px; overflow-x: auto; }
 pre { margin: 0; font: inherit; white-space: pre; }
 .fc-error { color: ${css(theme.error)}; }
-.fc-value { margin: 2px 0; }
+.fc-value { margin: 2px 0; white-space: normal; }
+img { max-width: 100%; }
 table { border-collapse: collapse; font: inherit; }
 th, td { border: 1px solid $border; padding: 1px 6px; text-align: left; vertical-align: top; white-space: pre; }
 thead th { background: $header; font-weight: 600; position: sticky; top: 0; }

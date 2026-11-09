@@ -254,8 +254,19 @@ module ProtocolTests =
     [<Fact>]
     let ``parses init and eval`` () =
         Assert.Equal(Init @"C:\a\b.fsx", parseRequest """{"type":"init","scriptPath":"C:\\a\\b.fsx"}""")
-        Assert.Equal(Eval("7", "1+1", 3), parseRequest """{"type":"eval","id":7,"code":"1+1","startLine":3}""")
-        Assert.Equal(Eval("\"x\"", "1", 1), parseRequest """{"type":"eval","id":"x","code":"1"}""")
+        Assert.Equal(Eval("7", "1+1", 3, None), parseRequest """{"type":"eval","id":7,"code":"1+1","startLine":3}""")
+        Assert.Equal(Eval("\"x\"", "1", 1, None), parseRequest """{"type":"eval","id":"x","code":"1"}""")
+
+    [<Fact>]
+    let ``parses the display of an eval`` () =
+        Assert.Equal(Eval("1", "x", 1, Some Image), parseRequest """{"type":"eval","id":1,"code":"x","display":"image"}""")
+        Assert.Equal(Eval("1", "x", 1, Some Html), parseRequest """{"type":"eval","id":1,"code":"x","display":"html"}""")
+        Assert.Equal(Eval("1", "x", 1, None), parseRequest """{"type":"eval","id":1,"code":"x","display":null}""")
+
+    [<Fact>]
+    let ``an unknown display is an error`` () =
+        let e = Assert.Throws<Exception>(fun () -> parseRequest """{"type":"eval","id":1,"code":"x","display":"video"}""" |> ignore)
+        Assert.Equal("unknown display 'video'", e.Message)
 
     [<Fact>]
     let ``serializes eval response and echoes the id`` () =
@@ -289,6 +300,110 @@ module ProtocolHtmlTests =
             """{"type":"result","id":1,"ok":true,"stdout":"","valueText":"v","valueHtml":"<b>v</b>","typeName":"X","diagnostics":[],"elapsedMs":1}""",
             serializeEvalResponse "1" r)
 
+module DisplayTests =
+
+    let onePixelPng =
+        Convert.FromBase64String "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+    /// `length` bytes starting with `header`, zero-filled.
+    let bytesOf (header: int list) (length: int) =
+        let b = Array.zeroCreate<byte> length
+        header |> List.iteri (fun i x -> b[i] <- byte x)
+        b
+
+    let ascii (s: string) = s |> Seq.map int |> List.ofSeq
+
+    let png (w: int) (h: int) (length: int) =
+        let be (x: int) = [ x >>> 24; x >>> 16; x >>> 8; x ] |> List.map (fun v -> v &&& 0xFF)
+        bytesOf ([ 0x89; 0x50; 0x4E; 0x47; 0x0D; 0x0A; 0x1A; 0x0A; 0; 0; 0; 13 ] @ ascii "IHDR" @ be w @ be h) length
+
+    let ok (r: Result<string * string, string>) =
+        match r with
+        | Ok v -> v
+        | Error e -> failwithf "expected Ok, got Error %s" e
+
+    let error (r: Result<string * string, string>) =
+        match r with
+        | Error e -> e
+        | Ok v -> failwithf "expected Error, got Ok %A" v
+
+    let imageText (v: obj) = fst (ok (Formatting.imageOutput v))
+
+    [<Fact>]
+    let ``png bytes become an img with a data uri`` () =
+        let text, html = ok (Formatting.imageOutput (box onePixelPng))
+        Assert.Equal("image/png, 1×1, 70 bytes", text)
+        Assert.Equal("<img src=\"data:image/png;base64," + Convert.ToBase64String onePixelPng + "\">", html)
+
+    [<Fact>]
+    let ``png dimensions and size are in the text`` () =
+        Assert.Equal("image/png, 640×480, 22 KB", imageText (box (png 640 480 23_000)))
+
+    [<Fact>]
+    let ``size is shown in bytes, KB or MB`` () =
+        Assert.Equal("image/png, 1×1, 100 bytes", imageText (box (png 1 1 100)))
+        Assert.Equal("image/png, 1×1, 2 KB", imageText (box (png 1 1 2048)))
+        Assert.Equal("image/png, 1×1, 1.5 MB", imageText (box (png 1 1 1_572_864)))
+
+    [<Fact>]
+    let ``gif bmp and jpeg are sniffed and measured`` () =
+        let gif = bytesOf (ascii "GIF89a" @ [ 0x40; 0x01; 0xF0; 0x00 ]) 2048
+        Assert.Equal("image/gif, 320×240, 2 KB", imageText (box gif))
+        // BM header, then width 100 and height -50 (a top-down bitmap) at offsets 18 and 22.
+        let bmp = bytesOf (ascii "BM" @ List.replicate 16 0 @ [ 100; 0; 0; 0; 0xCE; 0xFF; 0xFF; 0xFF ]) 500
+        Assert.Equal("image/bmp, 100×50, 500 bytes", imageText (box bmp))
+        // SOI, an APP0 segment of length 4, then SOF0 with height 480 and width 640.
+        let jpeg = bytesOf [ 0xFF; 0xD8; 0xFF; 0xE0; 0; 4; 0; 0; 0xFF; 0xC0; 0; 17; 8; 0x01; 0xE0; 0x02; 0x80 ] 1024
+        Assert.Equal("image/jpeg, 640×480, 1 KB", imageText (box jpeg))
+
+    [<Fact>]
+    let ``webp is recognised without dimensions`` () =
+        let webp = bytesOf (ascii "RIFF" @ [ 0; 0; 0; 0 ] @ ascii "WEBP") 2048
+        Assert.Equal("image/webp, 2 KB", imageText (box webp))
+
+    [<Fact>]
+    let ``an svg string becomes an image`` () =
+        let svg = "  <svg xmlns=\"http://www.w3.org/2000/svg\"><circle r=\"1\"/></svg>"
+        let text, html = ok (Formatting.imageOutput (box svg))
+        Assert.Equal("image/svg+xml, 63 bytes", text)
+        let b64 = Convert.ToBase64String(Text.Encoding.UTF8.GetBytes svg)
+        Assert.Equal("<img src=\"data:image/svg+xml;base64," + b64 + "\">", html)
+        Assert.StartsWith("image/svg+xml", imageText (box "<?xml version=\"1.0\"?>\n<svg></svg>"))
+
+    [<Fact>]
+    let ``a string is an image file path, relative to the current directory`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "fsx-cells-tests", Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        File.WriteAllBytes(Path.Combine(dir, "a.png"), onePixelPng)
+        File.WriteAllText(Path.Combine(dir, "b.svg"), "<g/>")
+        File.WriteAllText(Path.Combine(dir, "c.txt"), "not an image")
+        let original = Directory.GetCurrentDirectory()
+        try
+            Directory.SetCurrentDirectory dir
+            Assert.Equal("image/png, 1×1, 70 bytes", imageText (box "a.png"))
+            Assert.Equal("image/png, 1×1, 70 bytes", imageText (box (Path.Combine(dir, "a.png"))))
+            Assert.StartsWith("image/svg+xml", imageText (box "b.svg"))
+            Assert.Equal("[image] file not found: missing.png", error (Formatting.imageOutput (box "missing.png")))
+            Assert.Contains("c.txt", error (Formatting.imageOutput (box "c.txt")))
+        finally
+            Directory.SetCurrentDirectory original
+
+    [<Fact>]
+    let ``image errors for unknown bytes and other types`` () =
+        Assert.Contains("is not a PNG", error (Formatting.imageOutput (box [| 1uy; 2uy; 3uy |])))
+        Assert.Equal(
+            "[image] expects byte[], an SVG string or an image file path, got Int32",
+            error (Formatting.imageOutput (box 42)))
+        Assert.Equal(
+            "[image] expects byte[], an SVG string or an image file path, got list<Int32>",
+            error (Formatting.imageOutput (box [ 1 ])))
+
+    [<Fact>]
+    let ``html passes a string through`` () =
+        Assert.Equal(("<b>hi</b>", "<b>hi</b>"), ok (Formatting.htmlOutput (box "<b>hi</b>")))
+        Assert.Equal("[html] expects a string, got Int32", error (Formatting.htmlOutput (box 1)))
+        Assert.Equal("[html] expects a string, got null", error (Formatting.htmlOutput null))
+
 /// A temp folder layout like the Advent of Code repo: <root>/utils.fsx and <root>/2025/Day01.fsx.
 let makeScriptDir () =
     let root = Path.Combine(Path.GetTempPath(), "fsx-cells-tests", Guid.NewGuid().ToString("N"))
@@ -311,6 +426,33 @@ type SessionTests() =
         member _.Dispose() =
             (session :> IDisposable).Dispose()
             Directory.SetCurrentDirectory originalDir
+
+    [<Fact>]
+    member _.``display image shows the value as an image``() =
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+        let r = session.Eval(sprintf "System.Convert.FromBase64String \"%s\"" png, 1, Image)
+        Assert.True(r.Ok, string r.Error)
+        Assert.Equal(Some "image/png, 1×1, 70 bytes", r.ValueText)
+        Assert.StartsWith("<img src=\"data:image/png;base64,", r.ValueHtml.Value)
+        Assert.Equal(Some "byte array", r.TypeName)
+
+    [<Fact>]
+    member _.``display with a value of the wrong type fails the cell``() =
+        let r = session.Eval("42", 1, Image)
+        Assert.False r.Ok
+        Assert.Equal(Some "[image] expects byte[], an SVG string or an image file path, got Int32", r.Error)
+        Assert.Equal(None, r.ValueHtml)
+        let h = session.Eval("\"<b>x</b>\"", 1, Html)
+        Assert.True(h.Ok, string h.Error)
+        Assert.Equal(Some "<b>x</b>", h.ValueHtml)
+        Assert.Equal(Some "<b>x</b>", h.ValueText)
+
+    [<Fact>]
+    member _.``display on a cell without a value shows nothing``() =
+        let r = session.Eval("let y = 1", 1, Image)
+        Assert.True(r.Ok, string r.Error)
+        Assert.Equal(None, r.ValueText)
+        Assert.Equal(None, r.ValueHtml)
 
     [<Fact>]
     member _.``value defined in one eval is used in the next``() =
