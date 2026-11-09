@@ -13,6 +13,8 @@ dependencies {
     intellijPlatform {
         // Rider frontend. Bump this to match the Rider version you use day to day.
         rider(providers.gradleProperty("riderVersion").get())
+        // The embedded browser for HTML output. Optional at runtime (see plugin.xml).
+        bundledPlugin("com.intellij.modules.jcef")
     }
 }
 

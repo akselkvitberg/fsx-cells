@@ -37,6 +37,9 @@ class HtmlView(
     @Volatile
     private var dimmed = false
 
+    @Volatile
+    private var disposed = false
+
     val component: JComponent get() = browser.component
 
     init {
@@ -46,13 +49,13 @@ class HtmlView(
 
         heightQuery.addHandler { request ->
             request.toDoubleOrNull()?.let { h ->
-                ApplicationManager.getApplication().invokeLater({ onContentHeight(Math.ceil(h).toInt()) }) { Disposer.isDisposed(this) }
+                ApplicationManager.getApplication().invokeLater({ onContentHeight(Math.ceil(h).toInt()) }) { disposed }
             }
             null
         }
         wheelQuery.addHandler { request ->
             request.toDoubleOrNull()?.let { d ->
-                ApplicationManager.getApplication().invokeLater({ onWheelOverflow(d) }) { Disposer.isDisposed(this) }
+                ApplicationManager.getApplication().invokeLater({ onWheelOverflow(d) }) { disposed }
             }
             null
         }
@@ -106,10 +109,19 @@ class HtmlView(
         })();
     """.trimIndent()
 
-    override fun dispose() {}
+    override fun dispose() {
+        disposed = true
+    }
+}
 
-    companion object {
-        /** False when the IDE runs without JCEF (some remote/headless setups); output then falls back to text. */
-        val isSupported: Boolean get() = try { JBCefApp.isSupported() } catch (_: Throwable) { false }
+/** Whether HTML output can be shown. Kept out of HtmlView so checking never loads the JCEF classes. */
+object HtmlSupport {
+    /** False when the JCEF plugin is missing or JCEF can't start (some remote/headless setups); output is text then. */
+    val isSupported: Boolean by lazy {
+        try {
+            JBCefApp.isSupported()
+        } catch (_: Throwable) {
+            false
+        }
     }
 }

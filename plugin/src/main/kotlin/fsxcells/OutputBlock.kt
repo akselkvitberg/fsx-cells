@@ -83,7 +83,7 @@ class OutputBlock(
     private val blockBackground: Color get() = blend(scheme.defaultBackground, scheme.defaultForeground, 0.05)
 
     private val htmlView: HtmlView? =
-        content.html?.takeIf { HtmlView.isSupported }?.let { body ->
+        content.html?.takeIf { HtmlSupport.isSupported }?.let { body ->
             HtmlView(HtmlPage.page(body, htmlTheme()), ::onHtmlHeight, ::scrollEditor)
                 .also { Disposer.register(this, it) }
         }
