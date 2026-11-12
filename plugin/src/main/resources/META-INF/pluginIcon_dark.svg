@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <!-- Two notebook cells; the first one has a run arrow. -->
+  <rect x="3" y="4" width="34" height="14" rx="3" fill="#5AAEDB"/>
+  <path d="M10 7.5 L17.5 11 L10 14.5 Z" fill="#1E1F22"/>
+  <rect x="20.5" y="9.5" width="12" height="3" rx="1.5" fill="#1E1F22"/>
+  <rect x="3" y="22" width="34" height="14" rx="3" fill="#1F3542" stroke="#5AAEDB" stroke-width="2"/>
+  <rect x="8" y="27.5" width="18" height="3" rx="1.5" fill="#5AAEDB"/>
+</svg>

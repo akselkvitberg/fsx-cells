@@ -200,7 +200,7 @@ class HostSession(private val scriptPath: String) {
     }
 
     companion object {
-        const val PLUGIN_ID = "fsxcells"
+        const val PLUGIN_ID = "io.github.akselkvitberg.fsxcells"
         const val HOST_ENV = "FSXCELLS_HOST"
         private val STOP: Pair<Int?, String> = Pair(null, "")
         private const val STDERR_TAIL_LINES = 30

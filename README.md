@@ -1,5 +1,6 @@
 # fsx-cells
 
+<!-- Plugin description -->
 Run cells of plain F# script (`.fsx`) files in Rider, notebook-style, and see the result right under each cell.
 
 ```fsharp
@@ -21,6 +22,12 @@ grid.Length
 - Each cell has a toolbar above it (Run cell, Run up to here, Add cell above) and a run icon in the gutter;
   right-click the icon for Run All Cells, Add Cell Below and more.
 - Each file has its own F# session, stopped when you close the file; restart it from Tools > FSX Cells.
+- Sequences of records, objects and unions are shown as tables; `fsi.AddPrinter`, `fsi.PrintLength` and
+  `fsi.PrintDepth` tune the output. Cells marked `[image]` or `[html]` show images and HTML.
+
+Requires a .NET 10 or newer SDK: cells are compiled by the installed SDK's F# compiler, the one `dotnet fsi` uses
+in the script's folder.
+<!-- Plugin description end -->
 
 ## Layout
 
@@ -113,10 +120,34 @@ top. Lines that use Polyglot-only APIs such as `display` or `Formatter` are list
 
 ## Releases
 
-The `Build` workflow builds and tests on every push. To make a release, push a version tag; the workflow builds
-the plugin with that version and attaches the zip to a GitHub release (it isn't published to the Marketplace):
+The `Build` workflow builds, tests and runs the JetBrains Plugin Verifier on every push. To make a release:
 
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
+1. Move the `Unreleased` notes in [CHANGELOG.md](CHANGELOG.md) under a version heading (or run
+   `./gradlew patchChangelog -Pversion=0.2.0` in `plugin/`) and commit.
+2. Push a version tag:
+
+   ```bash
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+The workflow builds the plugin with that version, attaches the zip to a GitHub release and, when the
+`PUBLISH_TOKEN` secret is set, publishes it to the JetBrains Marketplace. A tag with a pre-release suffix
+(`v0.3.0-eap.1`) goes to the Marketplace's `eap` channel instead of the default one.
+
+The plugin page's description comes from the part of this README between the `Plugin description` comments, and
+its change notes from CHANGELOG.md.
+
+Repository secrets used by the workflow:
+
+| Secret | Use |
+|---|---|
+| `PUBLISH_TOKEN` | A JetBrains Marketplace token (marketplace profile > My Tokens). Without it, nothing is published. |
+| `CERTIFICATE_CHAIN`, `PRIVATE_KEY`, `PRIVATE_KEY_PASSWORD` | Optional: sign the plugin zip ([how](https://plugins.jetbrains.com/docs/intellij/plugin-signing.html)). The Marketplace signs plugins either way. |
+
+The first version has to be uploaded by hand at <https://plugins.jetbrains.com/plugin/add> (build it with
+`./gradlew buildPlugin -Pversion=0.1.0`); JetBrains reviews new plugins before they're listed.
+
+## License
+
+[MIT](LICENSE)
