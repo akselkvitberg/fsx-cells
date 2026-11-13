@@ -1,0 +1,5 @@
+# Shell scripts must keep LF line endings, also in a Windows checkout (CI runs them with bash there).
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.jar binary

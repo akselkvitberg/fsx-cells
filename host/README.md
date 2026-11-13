@@ -23,6 +23,7 @@ work without a new host; the host runs on the newest installed .NET (`RollForwar
 ```bash
 dotnet build host/FsxCells.Host
 dotnet test host/FsxCells.Host.Tests
+host/smoke-test.sh   # the published host, with the installed SDK's F# compiler
 ```
 
 ## Protocol

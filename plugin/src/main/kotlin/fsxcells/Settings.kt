@@ -1,6 +1,7 @@
 package fsxcells
 
 import com.intellij.ide.BrowserUtil
+import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -60,18 +61,26 @@ class FsxCellsConfigurable : BoundConfigurable("FSX Cells") {
     }
 }
 
-/** Balloon for setup problems, with links to download .NET and to the settings. */
+/** Balloon for setup problems: links to download .NET and to the settings, or to trust the project. */
 object SetupNotifier {
     private const val GROUP = "FSX Cells"
 
-    fun notify(project: Project, problem: DotnetSetupException) {
+    fun notify(project: Project, problem: SetupException) {
         val content = StringUtil.escapeXmlEntities(problem.message.orEmpty()).replace("\n", "<br>")
-        NotificationGroupManager.getInstance().getNotificationGroup(GROUP)
+        val notification = NotificationGroupManager.getInstance().getNotificationGroup(GROUP)
             .createNotification(problem.title, content, NotificationType.ERROR)
-            .addAction(NotificationAction.createSimple("Download .NET") { BrowserUtil.browse(Dotnet.DOWNLOAD_URL) })
-            .addAction(NotificationAction.createSimple("Set dotnet path…") {
-                ShowSettingsUtil.getInstance().showSettingsDialog(project, FsxCellsConfigurable::class.java)
-            })
-            .notify(project)
+        when (problem) {
+            is UntrustedProjectException -> notification.addAction(
+                NotificationAction.createSimpleExpiring("Trust Project") {
+                    TrustedProjects.setProjectTrusted(project, true)
+                },
+            )
+            else -> notification
+                .addAction(NotificationAction.createSimple("Download .NET") { BrowserUtil.browse(Dotnet.DOWNLOAD_URL) })
+                .addAction(NotificationAction.createSimple("Set dotnet path…") {
+                    ShowSettingsUtil.getInstance().showSettingsDialog(project, FsxCellsConfigurable::class.java)
+                })
+        }
+        notification.notify(project)
     }
 }

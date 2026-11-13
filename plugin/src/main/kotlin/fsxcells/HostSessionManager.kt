@@ -1,5 +1,6 @@
 package fsxcells
 
+import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -27,14 +28,16 @@ class HostSessionManager(private val project: Project) : Disposable {
     private var lastNotified: String? = null
 
     /**
-     * Evaluates [code] in [scriptPath]'s session, starting one if needed. Fails with [DotnetSetupException] when
-     * dotnet or its SDK can't run cells; that is also shown once as a notification.
+     * Evaluates [code] in [scriptPath]'s session, starting one if needed. Fails with a [SetupException] when the
+     * project isn't trusted or dotnet or its SDK can't run cells; that is also shown once as a notification.
      */
     fun eval(scriptPath: String, code: String, startLine: Int, display: CellDisplay?): CompletableFuture<EvalResult> {
         val result = CompletableFuture<EvalResult>()
         starter.execute {
             try {
                 check(!disposed) { "The project is closed." }
+                // Running a cell runs the script's code: not in a project the user hasn't trusted.
+                if (!TrustedProjects.isProjectTrusted(project)) throw UntrustedProjectException()
                 sessionFor(scriptPath).eval(code, startLine, display).whenComplete { r, e ->
                     if (e != null) result.completeExceptionally(e) else result.complete(r)
                 }
@@ -43,7 +46,7 @@ class HostSessionManager(private val project: Project) : Disposable {
             }
         }
         return result.whenComplete { _, e ->
-            val problem = generateSequence(e) { it.cause }.filterIsInstance<DotnetSetupException>().firstOrNull()
+            val problem = generateSequence(e) { it.cause }.filterIsInstance<SetupException>().firstOrNull()
             if (problem == null) {
                 if (e == null) lastNotified = null
             } else if (problem.message != lastNotified && !disposed) {

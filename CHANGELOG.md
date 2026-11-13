@@ -18,3 +18,4 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
   from the Dock), or set in Settings | Tools | FSX Cells.
 - A notification explains a missing `dotnet` or a .NET SDK older than 10 (including one pinned by `global.json`),
   with links to download .NET and to the settings.
+- Cells don't run in a project Rider doesn't trust; a notification offers to trust it.

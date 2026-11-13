@@ -12,7 +12,6 @@ import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.util.Disposer
@@ -139,7 +138,7 @@ class CellOutputs private constructor(private val editor: Editor) {
         val project = editor.project ?: return
         val file = LightVirtualFile("Cell output.txt", PlainTextFileType.INSTANCE, output.fullText)
         file.isWritable = false
-        FileEditorManager.getInstance(project).openFileEditor(OpenFileDescriptor(project, file), true)
+        OpenFileDescriptor(project, file).navigate(true)
     }
 
     /** The block goes under the cell's last line (or its marker line, for an empty cell). */

@@ -7,10 +7,20 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
 /**
- * The machine isn't set up to run cells: no `dotnet`, no .NET SDK, or one that's too old. [title] is a short summary
- * for a notification; the message says what was found and what to do.
+ * Cells can't run until the user changes something. [title] is a short summary for a notification; the message says
+ * what was found and what to do.
  */
-class DotnetSetupException(val title: String, message: String) : Exception(message)
+open class SetupException(val title: String, message: String) : Exception(message)
+
+/** The machine isn't set up to run cells: no `dotnet`, no .NET SDK, or one that's too old. */
+class DotnetSetupException(title: String, message: String) : SetupException(title, message)
+
+/** The project isn't trusted, so its scripts aren't run. */
+class UntrustedProjectException : SetupException(
+    "The project isn't trusted",
+    "Rider hasn't been told to trust this project, so FSX Cells doesn't run code from it. " +
+        "Trust the project to run cells.",
+)
 
 /** Finds the `dotnet` to run the host with, and checks that it has a .NET SDK that can run cells. */
 object Dotnet {
