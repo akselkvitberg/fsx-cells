@@ -16,7 +16,9 @@ work without a new host; the host runs on the newest installed .NET (`RollForwar
   updated.
 - `Sdk.fs` installs the assembly resolver as the first thing `main` does, before any F# library code runs.
 - Set `FSXCELLS_FSHARP_DIR` to a folder with FSharp.Compiler.Service.dll and FSharp.Core.dll to use those instead.
-- Without a usable SDK the host prints why to stderr and exits with code 2; the plugin shows that message.
+- Without a usable SDK the host prints why to stderr and exits with code 2; the plugin shows that message as a
+  setup problem. (The plugin checks first that `dotnet` exists and picks SDK 10 or newer in the script's folder,
+  and runs the host with that `dotnet`; see "Finding dotnet" in the main README.)
 
 ```bash
 dotnet build host/FsxCells.Host

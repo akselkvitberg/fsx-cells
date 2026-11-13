@@ -1,11 +1,9 @@
 <idea-plugin>
-    <id>fsxcells</id>
+    <!-- Never change the id: the Marketplace identifies the plugin by it. -->
+    <id>io.github.akselkvitberg.fsxcells</id>
     <name>FSX Cells</name>
-    <vendor>Aksel Kvitberg</vendor>
-    <description><![CDATA[
-        Run comment-delimited cells (<code>(* cell *)</code> or <code>// %%</code>) of plain F# script files
-        with Ctrl+Enter and show the result directly under the cell.
-    ]]></description>
+    <vendor url="https://github.com/akselkvitberg/fsx-cells">Aksel Kvitberg</vendor>
+    <!-- <description>, <change-notes>, version and since-build are filled in by the build (see build.gradle.kts). -->
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.rider</depends>
@@ -47,5 +45,8 @@
     <extensions defaultExtensionNs="com.intellij">
         <editorFactoryListener implementation="fsxcells.FsxEditorListener"/>
         <actionPromoter implementation="fsxcells.FsxActionPromoter"/>
+        <applicationConfigurable parentId="tools" instance="fsxcells.FsxCellsConfigurable"
+                                 id="fsxcells.settings" displayName="FSX Cells"/>
+        <notificationGroup id="FSX Cells" displayType="BALLOON"/>
     </extensions>
 </idea-plugin>

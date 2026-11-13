@@ -3,9 +3,8 @@ package fsxcells
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.extensions.PluginId
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -59,11 +58,19 @@ class HostSession(private val scriptPath: String) {
     /** The host's last stderr lines, shown when it exits unexpectedly (an unhandled exception's message and stack). */
     private val stderrTail = ArrayDeque<String>()
 
+    /**
+     * Finds dotnet and checks its SDK before starting the host; throws [DotnetSetupException] if it can't run cells.
+     * Starts processes: don't create one on the UI thread.
+     */
     init {
-        val command = hostCommand()
+        val scriptDir = File(scriptPath).absoluteFile.parentFile
+        val dll = hostDll()
+        val dotnet = Dotnet.resolve(scriptDir)
+        val command = listOf(dotnet.path, dll.absolutePath)
         log.info("Starting fsx-cells host: ${command.joinToString(" ")} for $scriptPath")
         process = ProcessBuilder(command)
-            .directory(File(scriptPath).parentFile)
+            .directory(scriptDir)
+            .apply { environment().putAll(Dotnet.environment(dotnet, Dotnet.environment())) }
             .start()
         stdin = OutputStreamWriter(process.outputStream, StandardCharsets.UTF_8)
 
@@ -79,7 +86,15 @@ class HostSession(private val scriptPath: String) {
                     }
                 }
         }
-        process.onExit().thenRun { failPending(exitMessage()) }
+        process.onExit().thenRun {
+            val message = exitMessage()
+            if (process.exitValue() == HOST_SDK_EXIT_CODE) {
+                // The host couldn't load the SDK's F# compiler (see Program.fs): a setup problem, not a crash.
+                failPending(DotnetSetupException("Can't load the .NET SDK's F# compiler", message))
+            } else {
+                failPending(message)
+            }
+        }
 
         send(null, JsonObject().apply {
             addProperty("type", "init")
@@ -183,6 +198,10 @@ class HostSession(private val scriptPath: String) {
         return if (tail.isEmpty()) head else head + "\n" + tail.joinToString("\n")
     }
 
+    private fun failPending(error: Throwable) {
+        pending.keys.toList().forEach { id -> pending.remove(id)?.completeExceptionally(error) }
+    }
+
     private fun failPending(message: String) {
         val result = EvalResult(false, "", null, null, message, 0)
         pending.keys.toList().forEach { id -> pending.remove(id)?.complete(result) }
@@ -200,20 +219,26 @@ class HostSession(private val scriptPath: String) {
     }
 
     companion object {
-        const val PLUGIN_ID = "fsxcells"
         const val HOST_ENV = "FSXCELLS_HOST"
         private val STOP: Pair<Int?, String> = Pair(null, "")
         private const val STDERR_TAIL_LINES = 30
 
-        /** `dotnet <FsxCells.Host.dll>`. The DLL is bundled in the plugin; FSXCELLS_HOST overrides it for development. */
-        fun hostCommand(): List<String> {
+        /** The host's exit code when the SDK's F# compiler can't be loaded (see host Program.fs). */
+        private const val HOST_SDK_EXIT_CODE = 2
+
+        /**
+         * FsxCells.Host.dll, bundled in the plugin under `<plugin>/host`; FSXCELLS_HOST overrides it for development.
+         * The plugin folder is found from this class's jar, which is in `<plugin>/lib`: the plugin manager's lookup by id
+         * is internal API.
+         */
+        fun hostDll(): File {
             val override = System.getenv(HOST_ENV)?.takeIf { it.isNotBlank() }
             val dll = override?.let { File(it) }
-                ?: PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.pluginPath
-                    ?.resolve("host")?.resolve("FsxCells.Host.dll")?.toFile()
+                ?: PathManager.getJarPathForClass(HostSession::class.java)?.let { File(it).absoluteFile.parentFile?.parentFile }
+                    ?.resolve("host")?.resolve("FsxCells.Host.dll")
                 ?: error("Cannot locate the fsx-cells plugin folder.")
             if (!dll.exists()) error("F# host not found at $dll. Set $HOST_ENV to the path of FsxCells.Host.dll.")
-            return listOf("dotnet", dll.absolutePath)
+            return dll
         }
     }
 }
