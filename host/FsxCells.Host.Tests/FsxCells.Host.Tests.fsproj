@@ -26,7 +26,8 @@
     <PackageReference Include="FSharp.Compiler.Service" Version="43.12.403" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="$(MSBuildExtensionsPath)FSharp/FSharp.Compiler.Interactive.Settings.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <!-- MSBuildExtensionsPath ends with a slash in some SDKs (10) and not in others (11). -->
+    <None Include="$([MSBuild]::EnsureTrailingSlash('$(MSBuildExtensionsPath)'))FSharp/FSharp.Compiler.Interactive.Settings.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
 </Project>
