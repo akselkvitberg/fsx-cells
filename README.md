@@ -52,7 +52,7 @@ cd plugin
 Install the zip in your own Rider with Settings > Plugins > Install Plugin from Disk.
 
 `host/smoke-test.sh` publishes the host and runs a few cells through it with the installed SDK's F# compiler, the way
-the plugin does (the host's unit tests bring their own compiler).
+the plugin does (most of the host's unit tests run in-process with their own compiler).
 
 CI builds and tests on Linux, Windows and macOS. A weekly workflow (`Newest .NET SDK`) runs the host tests and the
 smoke test against the newest .NET SDK, previews included, to catch an SDK whose F# compiler the host can't use.

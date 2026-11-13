@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Runs the published host the way the plugin does (`dotnet FsxCells.Host.dll`, JSON lines over stdin/stdout) and
-# checks a few evaluations. Unlike host/FsxCells.Host.Tests, which bring their own F# compiler, this uses the F#
-# compiler of the installed .NET SDK, so it catches an SDK whose compiler the host can't use.
+# Runs the published (Release) host the way the plugin does (`dotnet FsxCells.Host.dll`, JSON lines over stdin/stdout)
+# and checks a few evaluations with the F# compiler of the installed .NET SDK. Most of host/FsxCells.Host.Tests run
+# sessions in-process with their own compiler; this covers more of what an SDK's compiler has to support (tables,
+# the fsi settings object, compile errors on the script's lines), so it catches an SDK the host can't use.
 #
 # Usage: host/smoke-test.sh [dotnet]   (from any folder; works in Git Bash on Windows)
 set -euo pipefail
