@@ -45,5 +45,8 @@
     <extensions defaultExtensionNs="com.intellij">
         <editorFactoryListener implementation="fsxcells.FsxEditorListener"/>
         <actionPromoter implementation="fsxcells.FsxActionPromoter"/>
+        <applicationConfigurable parentId="tools" instance="fsxcells.FsxCellsConfigurable"
+                                 id="fsxcells.settings" displayName="FSX Cells"/>
+        <notificationGroup id="FSX Cells" displayType="BALLOON"/>
     </extensions>
 </idea-plugin>

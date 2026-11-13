@@ -14,3 +14,7 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
   embedded browser is available.
 - `[image]` and `[html]` cell annotations to show a value as an image or as HTML.
 - Compile errors and the line of a runtime exception are underlined in the script.
+- `dotnet` is found on PATH, in `DOTNET_ROOT` or in the usual install folders (also on macOS when Rider is started
+  from the Dock), or set in Settings | Tools | FSX Cells.
+- A notification explains a missing `dotnet` or a .NET SDK older than 10 (including one pinned by `global.json`),
+  with links to download .NET and to the settings.

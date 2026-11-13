@@ -26,7 +26,8 @@ grid.Length
   `fsi.PrintDepth` tune the output. Cells marked `[image]` or `[html]` show images and HTML.
 
 Requires a .NET 10 or newer SDK: cells are compiled by the installed SDK's F# compiler, the one `dotnet fsi` uses
-in the script's folder.
+in the script's folder. `dotnet` is found on PATH or in the usual install folders; to use another one, set its path
+in Settings | Tools | FSX Cells.
 <!-- Plugin description end -->
 
 ## Layout
@@ -49,6 +50,21 @@ cd plugin
 ```
 
 Install the zip in your own Rider with Settings > Plugins > Install Plugin from Disk.
+
+## Finding dotnet
+
+Before starting a file's F# session the plugin looks for `dotnet` in this order, and uses the first it finds:
+
+1. The path set in Settings | Tools | FSX Cells, if any.
+2. PATH (on macOS, the PATH of your login shell, even when Rider was started from the Dock).
+3. `DOTNET_ROOT`.
+4. The usual install folders: `%ProgramFiles%\dotnet` on Windows; `/usr/local/share/dotnet`, Homebrew,
+   `/usr/share/dotnet`, `/usr/lib/dotnet` and similar on macOS and Linux; and `~/.dotnet` everywhere.
+
+It then runs `dotnet --version` in the script's folder, so `global.json` applies as it does for `dotnet fsi`. If
+`dotnet` isn't found, or the SDK it picks is older than .NET 10, the cell shows why and a notification offers to
+download .NET or open the settings. The session also gets that `dotnet`'s folder first on PATH, so processes the
+script starts use the same one.
 
 ## Output blocks
 

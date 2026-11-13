@@ -57,13 +57,7 @@ object CellRunner {
         val key = CellKey.of(document, cell)
         val stampAtSend = document.modificationStamp
 
-        val future = try {
-            HostSessionManager.getInstance(project).sessionFor(file.path).eval(code, cell.firstLine + 1, cell.display)
-        } catch (e: Exception) {
-            key.dispose()
-            outputs.show(cell, OutputFormatter.failure(e.message ?: e.toString()))
-            return done.also { it.complete(false) }
-        }
+        val future = HostSessionManager.getInstance(project).eval(file.path, code, cell.firstLine + 1, cell.display)
 
         future.whenComplete { result, error ->
             ApplicationManager.getApplication().invokeLater({
@@ -77,7 +71,8 @@ object CellRunner {
                         return@invokeLater
                     }
                     if (error != null) {
-                        outputs.show(current, OutputFormatter.failure(error.message ?: error.toString()))
+                        val cause = if (error is java.util.concurrent.CompletionException) error.cause ?: error else error
+                        outputs.show(current, OutputFormatter.failure(cause.message ?: cause.toString()))
                     } else {
                         ok = result.ok
                         val unchanged = document.modificationStamp == stampAtSend
