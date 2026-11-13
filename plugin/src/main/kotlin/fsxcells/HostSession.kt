@@ -3,9 +3,8 @@ package fsxcells
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.extensions.PluginId
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -220,7 +219,6 @@ class HostSession(private val scriptPath: String) {
     }
 
     companion object {
-        const val PLUGIN_ID = "io.github.akselkvitberg.fsxcells"
         const val HOST_ENV = "FSXCELLS_HOST"
         private val STOP: Pair<Int?, String> = Pair(null, "")
         private const val STDERR_TAIL_LINES = 30
@@ -228,12 +226,16 @@ class HostSession(private val scriptPath: String) {
         /** The host's exit code when the SDK's F# compiler can't be loaded (see host Program.fs). */
         private const val HOST_SDK_EXIT_CODE = 2
 
-        /** FsxCells.Host.dll, bundled in the plugin; FSXCELLS_HOST overrides it for development. */
+        /**
+         * FsxCells.Host.dll, bundled in the plugin under `<plugin>/host`; FSXCELLS_HOST overrides it for development.
+         * The plugin folder is found from this class's jar, which is in `<plugin>/lib`: the plugin manager's lookup by id
+         * is internal API.
+         */
         fun hostDll(): File {
             val override = System.getenv(HOST_ENV)?.takeIf { it.isNotBlank() }
             val dll = override?.let { File(it) }
-                ?: PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.pluginPath
-                    ?.resolve("host")?.resolve("FsxCells.Host.dll")?.toFile()
+                ?: PathManager.getJarPathForClass(HostSession::class.java)?.let { File(it).absoluteFile.parentFile?.parentFile }
+                    ?.resolve("host")?.resolve("FsxCells.Host.dll")
                 ?: error("Cannot locate the fsx-cells plugin folder.")
             if (!dll.exists()) error("F# host not found at $dll. Set $HOST_ENV to the path of FsxCells.Host.dll.")
             return dll

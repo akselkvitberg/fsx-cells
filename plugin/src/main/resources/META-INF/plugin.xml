@@ -1,5 +1,5 @@
 <idea-plugin>
-    <!-- Never change the id: the Marketplace identifies the plugin by it. HostSession.PLUGIN_ID must match. -->
+    <!-- Never change the id: the Marketplace identifies the plugin by it. -->
     <id>io.github.akselkvitberg.fsxcells</id>
     <name>FSX Cells</name>
     <vendor url="https://github.com/akselkvitberg/fsx-cells">Aksel Kvitberg</vendor>
