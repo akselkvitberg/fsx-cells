@@ -65,7 +65,8 @@ class DotnetTest {
     fun `puts the dotnet folder first on PATH`() {
         val sep = File.pathSeparator
         val env = Dotnet.environment(File("/opt/sdk/dotnet"), mapOf("PATH" to "/bin$sep/usr/bin", "HOME" to "/home/me"))
-        assertEquals("${File("/opt/sdk").path}$sep/bin$sep/usr/bin", env["PATH"])
+        // absoluteFile: on Windows the folder gets the current drive.
+        assertEquals("${File("/opt/sdk/dotnet").absoluteFile.parent}$sep/bin$sep/usr/bin", env["PATH"])
         assertEquals("/home/me", env["HOME"])
         // Already first: unchanged.
         assertEquals(env, Dotnet.environment(File("/opt/sdk/dotnet"), env))

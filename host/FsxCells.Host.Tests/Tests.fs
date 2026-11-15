@@ -527,6 +527,11 @@ module HostProcessTests =
         info.RedirectStandardInput <- true
         info.RedirectStandardOutput <- true
         info.RedirectStandardError <- true
+        // The protocol is UTF-8 (as the plugin reads it); the default is the console code page, not UTF-8 on Windows.
+        let utf8 = Text.UTF8Encoding(false)
+        info.StandardInputEncoding <- utf8
+        info.StandardOutputEncoding <- utf8
+        info.StandardErrorEncoding <- utf8
         info.UseShellExecute <- false
         use p = Process.Start info
         p.StandardInput.WriteLine(sprintf """{"type":"init","scriptPath":%s}""" (Text.Json.JsonSerializer.Serialize scriptPath))

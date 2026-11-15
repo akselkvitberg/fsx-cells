@@ -1,0 +1,45 @@
+# Weekly: test the host against the newest .NET SDK, previews included. The host loads the F# compiler of whatever
+# SDK is installed (see host/README.md), so a new SDK can break the plugin for everyone without any change here; this
+# shows it before users find it. GitHub emails the repository owner when a scheduled run fails.
+name: Newest .NET SDK
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the newest .NET SDK
+        id: sdk
+        run: |
+          # The newest channel in the release index, preview or not (e.g. 12.0 once its previews start).
+          index=$(curl -sSfL https://builds.dotnet.microsoft.com/dotnet/release-metadata/releases-index.json)
+          sdk=$(jq -r '."releases-index" | sort_by(."channel-version" | split(".") | map(tonumber)) | last | ."latest-sdk"' <<< "$index")
+          echo "Newest SDK: $sdk"
+          curl -sSfL https://builds.dotnet.microsoft.com/dotnet/scripts/v1/dotnet-install.sh -o "$RUNNER_TEMP/dotnet-install.sh"
+          dir="$RUNNER_TEMP/dotnet"
+          bash "$RUNNER_TEMP/dotnet-install.sh" --version "$sdk" --install-dir "$dir" --no-path
+          # The test project targets net10.0, so it needs that runtime next to the newer SDK.
+          bash "$RUNNER_TEMP/dotnet-install.sh" --channel 10.0 --runtime dotnet --install-dir "$dir" --no-path
+          echo "$dir" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$dir" >> "$GITHUB_ENV"
+          echo "version=$sdk" >> "$GITHUB_OUTPUT"
+
+      - name: Check the SDK in use
+        run: |
+          test "$(dotnet --version)" = "${{ steps.sdk.outputs.version }}"
+          dotnet --list-runtimes
+
+      - name: Test host
+        run: dotnet test host/FsxCells.Host.Tests
+
+      - name: Host smoke test (the SDK's F# compiler)
+        run: host/smoke-test.sh
