@@ -107,9 +107,10 @@ planets |> List.map (fun p -> p.Name, p.Moons) |> barChart
 // [html] shows a string as HTML.
 let card (p: Planet) =
     let rings = if p.Rings then "💍 rings" else "no rings"
+    let moons = if p.Moons = 1 then "1 moon" else $"{p.Moons} moons"
     $"""<div style="display:inline-block; margin:4px; padding:8px 12px; border-radius:8px; border:1px solid #8884">
             <b>{p.Name}</b><br>
-            <small>{p.DistanceAu:F2} AU · {p.Moons} moons · {rings}</small>
+            <small>{p.DistanceAu:F2} AU · {moons} · {rings}</small>
         </div>"""
 
 planets |> List.map card |> String.concat ""
