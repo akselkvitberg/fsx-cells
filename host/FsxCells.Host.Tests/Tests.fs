@@ -589,13 +589,17 @@ type SessionTests() =
     [<Fact>]
     member this.``output is passed on while the cell runs``() =
         let chunks = Collections.Concurrent.ConcurrentQueue<string>()
-        let running =
-            session.StartEval("printfn \"one\"\nSystem.Threading.Thread.Sleep 1500\nprintf \"two\"", 1, onOutput = chunks.Enqueue)
-        // The first line arrives while the cell still sleeps.
+        // The cell waits for this file, so the test controls how long it runs, however long compiling it takes.
+        let go = Path.Combine(Path.GetDirectoryName scriptPath, "go")
+        let code =
+            sprintf "printfn \"one\"\nwhile not (System.IO.File.Exists %s) do System.Threading.Thread.Sleep 20\nprintf \"two\"" (Text.Json.JsonSerializer.Serialize go)
+        let running = session.StartEval(code, 1, onOutput = chunks.Enqueue)
+        // The first line arrives while the cell still runs.
         let sw = Diagnostics.Stopwatch.StartNew()
-        while chunks.IsEmpty && sw.ElapsedMilliseconds < 1000L do Threading.Thread.Sleep 20
+        while chunks.IsEmpty && sw.ElapsedMilliseconds < 30_000L do Threading.Thread.Sleep 20
         Assert.False(running.IsCompleted, "the cell finished before its first output was passed on")
         Assert.Equal("one\n", String.Concat chunks)
+        File.WriteAllText(go, "")
         let r = this.Within(10.0, running)
         Assert.True(r.Ok, string r.Error)
         Assert.Equal("one\ntwo", r.Stdout)
