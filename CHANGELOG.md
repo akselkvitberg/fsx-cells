@@ -4,6 +4,11 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- Interrupt a running cell with the Stop link under it or Ctrl+F2; the session keeps its values.
+- What a cell prints is shown while it runs, with the time it has been running.
+
 ## [0.1.0] - 2026-11-16
 
 ### Added

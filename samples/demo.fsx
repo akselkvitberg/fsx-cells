@@ -52,6 +52,11 @@ String.concat "\n" [ for i in 1 .. 100 -> String.replicate i "*" ]
 let explode () : int = failwith "boom"
 explode ()
 
+// %% Slow cell: output shows while it runs; Stop (or Ctrl+F2) interrupts it
+for i in 1 .. 30 do
+    printfn "step %d" i
+    System.Threading.Thread.Sleep 500
+
 // %% Deep recursion (runs on a 256 MB stack)
 let rec sumTo n = if n = 0L then 0L else n + sumTo (n - 1L)
 sumTo 1_000_000L

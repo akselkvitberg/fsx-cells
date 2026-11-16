@@ -19,11 +19,13 @@ grid.Length
   - Ctrl+Enter (⌘↩ on macOS): run the cell under the caret.
   - Shift+Enter (⇧↩): run it and move to the next cell (on the last cell, add a new one).
   - Ctrl+Shift+Enter (⌘⇧↩): run it and add a new cell below.
+  - Ctrl+F2 (⌘F2): interrupt the running cell (also the Stop link under it). The session keeps its values.
 
   In .fsx files these take the place of Split Line, Start New Line and Complete Statement. To use other keys, search
   for "FSX Cells" in Settings | Keymap. Send to F# Interactive (Ctrl+\\) still works as before.
 - Each cell has a toolbar above it (Run cell, Run up to here, Add cell above) and a run icon in the gutter;
   right-click the icon for Run All Cells, Add Cell Below and more.
+- What a cell prints shows up while it runs.
 - Each file has its own F# session, stopped when you close the file; restart it from Tools > FSX Cells.
 - Sequences of records, objects and unions are shown as tables; `fsi.AddPrinter`, `fsi.PrintLength` and
   `fsi.PrintDepth` tune the output. Cells marked `[image]` or `[html]` show images and HTML.
@@ -82,6 +84,12 @@ script starts use the same one.
 Output appears under the cell as a block you can select and copy from (Ctrl+C, or right-click > Copy / Copy All /
 Open in Editor Tab). Blocks are at most 20 lines high (25 for HTML) and scroll beyond that. Editing a cell greys out its output
 until you run it again; compile errors and the script line a runtime exception came from get a wavy underline.
+
+While a cell runs, its block says for how long and has a Stop link, and what the cell prints appears as it comes
+(the last 1000 lines; all of it once the cell is done). Stop (or Ctrl+F2, or Tools > FSX Cells > Interrupt Cell)
+interrupts the cell like Ctrl+C in `dotnet fsi`: it stops where it is, along with the cells waiting to run after
+it, and the session keeps the values of earlier cells. A cell that doesn't stop within 5 seconds (stuck in native
+code, say) gets its session restarted instead.
 
 ## Tables and objects
 
