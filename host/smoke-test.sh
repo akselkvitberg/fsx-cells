@@ -29,10 +29,17 @@ cat > requests.jsonl <<EOF
 {"type":"eval","id":3,"code":"type P = { Name: string; Age: int }\n[ { Name = \"Ada\"; Age = 36 }; { Name = \"Grace\"; Age = 45 } ]","startLine":1}
 {"type":"eval","id":4,"code":"fsi.PrintLength <- 3\nfsi.PrintLength","startLine":1}
 {"type":"eval","id":5,"code":"let b: string = 1","startLine":7}
+{"type":"eval","id":6,"code":"while true do ()","startLine":1}
+EOF
+# Sent while cell 6 runs (or, on a slow machine, before it starts: interrupted either way). An interrupt also stops
+# the evaluations queued before it, so it can't go in the same batch as the others.
+cat > later.jsonl <<EOF
+{"type":"interrupt"}
+{"type":"eval","id":7,"code":"1 + 1","startLine":1}
 EOF
 
 # The host answers every request, then exits when stdin closes.
-"$dotnet" "$work/host/FsxCells.Host.dll" < requests.jsonl > responses.jsonl 2> stderr.txt || {
+{ cat requests.jsonl; sleep 5; cat later.jsonl; } | "$dotnet" "$work/host/FsxCells.Host.dll" > responses.jsonl 2> stderr.txt || {
     echo "The host exited with code $?:"
     cat stderr.txt
     exit 1
@@ -59,6 +66,8 @@ check 2 "stdout" '"ok":true' 'hello from fsi'
 check 3 "table of records" '"ok":true' '"valueHtml":' 'Grace'
 check 4 "fsi settings object" '"ok":true' '"valueText":"3"'
 check 5 "compile error on the script's line" '"ok":false' '"severity":"error"' '"startLine":7'
+check 6 "interrupt" '"ok":false' '"interrupted":true'
+check 7 "a cell after an interrupt" '"ok":true' '"valueText":"2"'
 
 if [[ $failed -ne 0 ]]; then
     echo "--- responses"; cat responses.jsonl

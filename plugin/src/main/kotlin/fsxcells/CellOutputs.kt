@@ -76,7 +76,7 @@ class CellOutputs private constructor(private val editor: Editor) {
 
         // Add the new block before removing the old one. Removing first makes the document briefly shorter; when the
         // editor is scrolled to the end of the file it then scrolls up, and doesn't scroll back when the new block is added.
-        val block = OutputBlock(editorEx, output, ::openInTab)
+        val block = OutputBlock(editorEx, output, ::openInTab, ::interrupt)
         val inlay = EditorEmbeddedComponentManager.getInstance().addComponent(
             editorEx,
             block,
@@ -111,7 +111,28 @@ class CellOutputs private constructor(private val editor: Editor) {
     fun markRunning(cell: Cell): OutputBlock? {
         find(cell)?.let { it.block.running = true; return it.block }
         show(cell, OutputFormatter.running())
-        return find(cell)?.block
+        return find(cell)?.block?.also { it.running = true }
+    }
+
+    /**
+     * Shows what the running [cell] has written so far. Its block is updated in place, or replaced when it shows
+     * HTML. Returns the block.
+     */
+    fun showLive(cell: Cell, output: CellOutput): OutputBlock? {
+        val existing = find(cell)
+        if (existing != null && existing.block.canShowLive) {
+            existing.block.showLive(output)
+            return existing.block
+        }
+        show(cell, output)
+        return find(cell)?.block?.also { it.showLive(output) }
+    }
+
+    /** Stops the cell running in this file (the Stop link of a running block). */
+    private fun interrupt() {
+        val project = editor.project ?: return
+        val file = FileDocumentManager.getInstance().getFile(document) ?: return
+        HostSessionManager.getInstance(project).interrupt(file.path)
     }
 
     /** Greys out the output of the cell containing [offset] (called after an edit). */
@@ -237,13 +258,31 @@ object OutputFormatter {
 
         val summary = buildString {
             result.typeName?.let { append(": ").append(it).append("   ") }
-            append("(").append(result.elapsedMs).append(" ms)")
+            if (result.interrupted) append("(interrupted after ").append(result.elapsedMs).append(" ms)")
+            else append("(").append(result.elapsedMs).append(" ms)")
             if (lines.size > OutputBlock.MAX_VISIBLE_LINES) append("   ").append(lines.size).append(" lines")
         }
         return CellOutput(shown, summary, fullText, html)
     }
 
     fun running() = CellOutput(emptyList(), "running…", "")
+
+    /** Lines (and characters) shown while a cell runs; the result shows them all. */
+    const val MAX_LIVE_LINES = 1000
+    private const val MAX_LIVE_CHARS = 200_000
+
+    /** What a running cell has written so far: the end of it, so a chatty cell stays cheap to show. */
+    fun live(stdout: String): CellOutput {
+        val tail = if (stdout.length <= MAX_LIVE_CHARS) stdout
+                   else stdout.substring(stdout.length - MAX_LIVE_CHARS).substringAfter('\n')
+        val all = tail.trimEnd('\n', '\r').lines()
+        val lines =
+            if (all.size > MAX_LIVE_LINES || tail.length < stdout.length)
+                listOf(OutputLine("… earlier lines are shown when the cell finishes", OutputLineKind.Dim)) +
+                    all.takeLast(MAX_LIVE_LINES).map { OutputLine(it) }
+            else all.map { OutputLine(it) }
+        return CellOutput(lines, "running…", stdout)
+    }
 
     fun failure(message: String) = CellOutput(listOf(OutputLine(message, OutputLineKind.Error)), "", message)
 }

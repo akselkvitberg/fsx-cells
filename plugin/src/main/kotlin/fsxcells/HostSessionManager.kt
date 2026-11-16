@@ -8,6 +8,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.AppExecutorUtil
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /** Keeps one [HostSession] per .fsx file in the project, so each file has its own F# state. */
 @Service(Service.Level.PROJECT)
@@ -31,14 +32,20 @@ class HostSessionManager(private val project: Project) : Disposable {
      * Evaluates [code] in [scriptPath]'s session, starting one if needed. Fails with a [SetupException] when the
      * project isn't trusted or dotnet or its SDK can't run cells; that is also shown once as a notification.
      */
-    fun eval(scriptPath: String, code: String, startLine: Int, display: CellDisplay?): CompletableFuture<EvalResult> {
+    fun eval(
+        scriptPath: String,
+        code: String,
+        startLine: Int,
+        display: CellDisplay?,
+        onOutput: ((String) -> Unit)? = null,
+    ): CompletableFuture<EvalResult> {
         val result = CompletableFuture<EvalResult>()
         starter.execute {
             try {
                 check(!disposed) { "The project is closed." }
                 // Running a cell runs the script's code: not in a project the user hasn't trusted.
                 if (!TrustedProjects.isProjectTrusted(project)) throw UntrustedProjectException()
-                sessionFor(scriptPath).eval(code, startLine, display).whenComplete { r, e ->
+                sessionFor(scriptPath).eval(code, startLine, display, onOutput).whenComplete { r, e ->
                     if (e != null) result.completeExceptionally(e) else result.complete(r)
                 }
             } catch (e: Throwable) {
@@ -62,6 +69,24 @@ class HostSessionManager(private val project: Project) : Disposable {
             if (existing != null && existing.isAlive) existing else HostSession(path)
         }!!
 
+    /** True while a cell of [scriptPath] runs (or waits to run) in its session. */
+    fun isBusy(scriptPath: String): Boolean = sessions[scriptPath]?.isBusy == true
+
+    /**
+     * Stops the running cell of [scriptPath] and the ones waiting to run. If a cell doesn't stop (it is stuck in
+     * native code, say), the session is restarted after [STUCK_SECONDS], losing its values.
+     */
+    fun interrupt(scriptPath: String) {
+        val session = sessions[scriptPath] ?: return
+        val waiting = session.interrupt()
+        if (waiting.isEmpty()) return
+        AppExecutorUtil.getAppScheduledExecutorService().schedule({
+            if (session.isWaitingFor(waiting) && sessions.remove(scriptPath, session)) {
+                session.dispose("The cell didn't stop when interrupted, so its F# session was restarted: values from earlier cells are gone.")
+            }
+        }, STUCK_SECONDS, TimeUnit.SECONDS)
+    }
+
     /** Stops the file's session (its state is lost); the next run starts a new one. */
     fun stop(scriptPath: String) {
         sessions.remove(scriptPath)?.dispose()
@@ -80,6 +105,9 @@ class HostSessionManager(private val project: Project) : Disposable {
     }
 
     companion object {
+        /** How long an interrupted cell may take to stop before its session is restarted. */
+        private const val STUCK_SECONDS = 5L
+
         fun getInstance(project: Project): HostSessionManager = project.service()
     }
 }

@@ -29,10 +29,12 @@ host/smoke-test.sh   # the published host, with the installed SDK's F# compiler
 ## Protocol
 
 JSON lines: one JSON object per line, UTF-8, `\n`-terminated. Requests go to stdin, responses
-come from stdout. Requests are handled one at a time, in order. Anything the evaluated code
-writes to the console outside an evaluation goes to stderr, so stdout carries only protocol lines.
+come from stdout. Requests are read as they come, even while a cell runs; evaluations queue up and
+run one at a time, in order. Anything the evaluated code writes to the console outside an
+evaluation goes to stderr, so stdout carries only protocol lines. Messages for different
+evaluations can interleave: match them by `id`.
 
-There is no reset or stop request: the plugin restarts the process for that.
+There is no reset request: the plugin restarts the process for that.
 
 ### `init`
 
@@ -75,6 +77,15 @@ The response:
 | `error` | Compile errors as `(line,col): message` lines, or the runtime exception as `Type: message` followed by the stack frames from the script. |
 | `diagnostics` | `[{startLine,startCol,endLine,endCol,severity,message,fileName}]`. Lines are 1-based script lines; columns are 0-based. `severity` is `error`, `warning`, `info` or `hidden`. `fileName` is the script, or a `#load`ed file. |
 | `elapsedMs` | Time spent evaluating. |
+| `interrupted` | `true` when an [`interrupt`](#interrupt) stopped the evaluation (then `ok` is `false` and `error` is `Interrupted.`, or `Interrupted before it started.`). Missing otherwise. |
+
+While the code runs, what it writes to the console is also sent as it comes, at most every 100 ms, in
+`output` messages. They all come before the `result`, whose `stdout` has the same text again, so a
+client can ignore them:
+
+```json
+{"type":"output","id":1,"text":"iteration 1\niteration 2\n"}
+```
 
 Line numbers are the script's own lines because the host pads `code` with `startLine - 1` empty
 lines and passes the script path to FSI. That also makes `__SOURCE_DIRECTORY__`, `__LINE__` and
@@ -93,6 +104,24 @@ A runtime exception:
 {"type":"eval","id":3,"code":"(failwith \"boom\" : int)","startLine":25}
 {"type":"result","id":3,"ok":false,"stdout":"","error":"System.Exception: boom\n   at <StartupCode$FSI_0004>.$FSI_0004.main@() in C:\\git\\AdventOfCode\\2025\\Day10.fsx:line 25","diagnostics":[],"elapsedMs":30}
 ```
+
+### `interrupt`
+
+```json
+{"type":"interrupt"}
+```
+
+Stops the running evaluation and the queued ones that came before this request; each answers with an
+`interrupted` result. Evaluations that come after it run as usual. No response of its own, and
+nothing happens when nothing runs.
+
+The host first asks FSI to stop (which stops compilation cleanly). If the code is still running
+300 ms later, it is aborted where it is, as Ctrl+C in `dotnet fsi` does: the evaluation thread is
+interrupted (for code that waits: `Thread.Sleep`, a lock, `Task.Wait`) and aborted with
+`ControlledExecution` (for code that computes). The session keeps working and keeps the values of
+earlier cells; the interrupted cell's own definitions are not made, and a mutable value it was
+changing can be left half-changed. Code that never returns to managed code (a native call) can't be
+stopped this way; the plugin then restarts the process.
 
 A request the host can't read gets a `protocolError` reply (with the `id` if it could be read):
 
@@ -160,4 +189,5 @@ These are set with F# Interactive's own settings, which also work in `dotnet fsi
 - Options: `--noninteractive --quiet --multiemit --gui- --langversion:preview`. Preview language features are
   always on, so a script that uses them needs `dotnet fsi --langversion:preview` to run outside the plugin.
 - Evaluations run on a dedicated thread with a 256 MB stack, so deep recursion works.
-- `Console.Out` and `Console.Error` are swapped for a `StringWriter` during each evaluation.
+- `Console.Out` and `Console.Error` are swapped for a writer that collects the output (and passes it on as
+  `output` messages) during each evaluation.

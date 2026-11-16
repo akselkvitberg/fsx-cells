@@ -20,6 +20,9 @@ type Request =
     /// id is the raw JSON text of the request's id, echoed back as-is.
     /// display, if set, shows the value as an image or as raw HTML.
     | Eval of id: string * code: string * startLine: int * display: Display option
+    /// Stops the running evaluation, and any received before this request that haven't started. Handled as soon as
+    /// it is read, even while a cell runs. No response of its own: the interrupted evaluations answer.
+    | Interrupt
 
 type Diagnostic =
     { StartLine: int
@@ -38,7 +41,9 @@ type EvalResult =
       TypeName: string option
       Error: string option
       Diagnostics: Diagnostic list
-      ElapsedMs: int64 }
+      ElapsedMs: int64
+      /// True when the evaluation was stopped by an `interrupt` request.
+      Interrupted: bool }
 
 /// Ids are kept as raw JSON (string or number) and echoed back unchanged.
 let private readId (el: JsonElement) =
@@ -85,6 +90,7 @@ let parseRequest (line: string) : Request =
                 | "html" -> Some Html
                 | other -> failwithf "unknown display '%s'" other
         Eval(id, code, startLine, display)
+    | "interrupt" -> Interrupt
     | other -> failwithf "unknown request type '%s'" other
 
 let private writeLine (write: Utf8JsonWriter -> unit) =
@@ -120,6 +126,17 @@ let serializeEvalResponse (id: string) (r: EvalResult) : string =
             w.WriteEndObject()
         w.WriteEndArray()
         w.WriteNumber("elapsedMs", r.ElapsedMs)
+        if r.Interrupted then w.WriteBoolean("interrupted", true)
+        w.WriteEndObject())
+
+/// Console output an evaluation wrote while it runs. The result's `stdout` still has all of it.
+let serializeOutput (id: string) (text: string) : string =
+    writeLine (fun w ->
+        w.WriteStartObject()
+        w.WriteString("type", "output")
+        w.WritePropertyName("id")
+        w.WriteRawValue(id)
+        w.WriteString("text", text)
         w.WriteEndObject())
 
 /// Reply to a request the host could not understand.
