@@ -173,7 +173,7 @@ Repository secrets used by the workflow:
 | `CERTIFICATE_CHAIN`, `PRIVATE_KEY`, `PRIVATE_KEY_PASSWORD` | Optional: sign the plugin zip ([how](https://plugins.jetbrains.com/docs/intellij/plugin-signing.html)). The Marketplace signs plugins either way. |
 
 The first version has to be uploaded by hand at <https://plugins.jetbrains.com/plugin/add> (build it with
-`./gradlew buildPlugin -Pversion=0.1.0`); JetBrains reviews new plugins before they're listed.
+`./gradlew buildPlugin -Pversion=0.6.0`); JetBrains reviews new plugins before they're listed.
 
 ## License
 

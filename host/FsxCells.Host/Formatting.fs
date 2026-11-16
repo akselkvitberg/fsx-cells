@@ -270,9 +270,23 @@ let private mayHavePrinter (t: Type) =
 let private isRowValue (v: obj) =
     not (isNull v) && isRowType (v.GetType()) && not (hasCustom v)
 
+/// Dates and times as ISO 8601 (1969-07-20, 1969-07-20 20:17:40), whatever the culture. Fractions of a second
+/// and a midnight time of day are left out.
+let dateText (v: obj) : string option =
+    let inv = CultureInfo.InvariantCulture
+    match v with
+    | :? DateOnly as d -> Some(d.ToString("yyyy-MM-dd", inv))
+    | :? DateTime as d when d.TimeOfDay = TimeSpan.Zero && d.Kind <> DateTimeKind.Utc -> Some(d.ToString("yyyy-MM-dd", inv))
+    | :? DateTime as d ->
+        Some(d.ToString("yyyy-MM-dd HH:mm:ss.FFFFFFF", inv) + (if d.Kind = DateTimeKind.Utc then "Z" else ""))
+    | :? DateTimeOffset as d -> Some(d.ToString("yyyy-MM-dd HH:mm:ss.FFFFFFF zzz", inv))
+    | :? TimeOnly as t -> Some(t.ToString("HH:mm:ss.FFFFFFF", inv))
+    | _ -> None
+
 /// Scalars as text; strings and chars are quoted when they are part of a larger value.
 let private scalarText (nested: bool) (v: obj) =
     match v with
+    | _ when (dateText v).IsSome -> (dateText v).Value
     | :? string as s -> if nested then "\"" + s + "\"" else s
     | :? char as c -> if nested then "'" + string c + "'" else string c
     | :? bool as b -> if b then "true" else "false"
@@ -497,6 +511,7 @@ let formatValue (value: obj) (ty: Type) : string option =
             | _ when (tryCustom value).IsSome -> tryCustom value
             | null -> None
             | :? string as s -> Some s
+            | _ when (dateText value).IsSome -> dateText value
             | _ ->
                 match kindOf value with
                 | Dictionary ->

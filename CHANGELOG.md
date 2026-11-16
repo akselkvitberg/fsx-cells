@@ -4,7 +4,10 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-11-16
+## [0.6.0] - 2026-11-16
+
+The first release on the JetBrains Marketplace. Versions up to 0.5.0 were GitHub releases only; this lists everything
+up to now.
 
 ### Added
 
@@ -22,5 +25,10 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
   with links to download .NET and to the settings.
 - Cells don't run in a project Rider doesn't trust; a notification offers to trust it.
 
-[Unreleased]: https://github.com/akselkvitberg/fsx-cells/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/akselkvitberg/fsx-cells/commits/v0.1.0
+### Changed
+
+- Dates and times are shown as ISO 8601 (`1969-07-20`, `1969-07-20 20:17:40`), whatever the culture, on their own
+  and in tables and objects.
+
+[Unreleased]: https://github.com/akselkvitberg/fsx-cells/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/akselkvitberg/fsx-cells/compare/v0.5.0...v0.6.0

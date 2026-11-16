@@ -105,6 +105,7 @@ A request the host can't read gets a `protocolError` reply (with the `id` if it 
 | Value | Shown as |
 |---|---|
 | `string` | The raw text: real line breaks, no quotes. |
+| `DateOnly`, `DateTime`, `DateTimeOffset`, `TimeOnly` | ISO 8601 whatever the culture: `1969-07-20`, `1969-07-20 20:17:40`, `1969-07-20 20:17:40 +02:00`, `20:17:40`. A `DateTime` at midnight is just the date (unless it is UTC, which ends in `Z`); fractions of a second only when there are any. Also inside tables and objects. |
 | A sequence of records, anonymous records or objects | A table: a `#` column, then one column per field or property. |
 | A sequence of union values (`Result` too) | A table: a `Case` column, then the case's fields: named fields by name, unnamed ones as `Item`, `Item1`, `Item2`. Fields another case doesn't have are left empty. Options and unions whose cases have no fields keep `%A`. |
 | A dictionary (`Map`, `dict`, `Dictionary`, ...) | A table with a `key` column, then the value's fields, or a `value` column. |
