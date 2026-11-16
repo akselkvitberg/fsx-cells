@@ -8,12 +8,14 @@ import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.event.MouseWheelEvent
 import java.awt.datatransfer.StringSelection
 import javax.swing.JMenuItem
@@ -22,6 +24,7 @@ import javax.swing.JPopupMenu
 import javax.swing.JTextPane
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
+import javax.swing.Timer
 import javax.swing.border.MatteBorder
 import javax.swing.text.SimpleAttributeSet
 import javax.swing.text.StyleConstants
@@ -41,12 +44,19 @@ data class CellOutput(val lines: List<OutputLine>, val summary: String, val full
  * The output block under a cell: a real Swing component embedded in the editor, so text can be selected and
  * copied. It is at most [MAX_VISIBLE_LINES] lines high and scrolls beyond that; the summary line stays visible.
  * Output with HTML is shown in an embedded browser instead of the text pane, up to [MAX_HTML_LINES] lines high.
+ *
+ * While its cell runs, the block says so (with the time so far and a Stop link calling [onStop]); output the cell
+ * writes meanwhile is shown with [showLive].
  */
 class OutputBlock(
     private val editor: EditorEx,
-    val content: CellOutput,
+    content: CellOutput,
     private val onOpenInTab: (CellOutput) -> Unit,
+    private val onStop: (() -> Unit)? = null,
 ) : JPanel(BorderLayout()), Disposable {
+
+    var content: CellOutput = content
+        private set
 
     /** The inlay holding this block; set by CellOutputs so the block can ask it to re-measure. */
     var inlay: Inlay<*>? = null
@@ -58,6 +68,15 @@ class OutputBlock(
     }
     private val scrollPane = JBScrollPane(textPane)
     private val summaryLabel = JBLabel()
+    private val stopLink = ActionLink("Stop") { onStop?.invoke() }.apply {
+        toolTipText = "Interrupt the running cell"
+        isFocusable = false
+    }
+    private val footer = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
+
+    /** Updates the "running… 12 s" summary while the cell runs. */
+    private val clock = Timer(1000) { render(); remeasure() }
+    private var runningSince = 0L
 
     /** True once the cell has been edited after it ran: everything is drawn dimmed. */
     var stale: Boolean = false
@@ -68,16 +87,29 @@ class OutputBlock(
             }
         }
 
-    /** True while the cell is being run again: the old output stays (dimmed) so the editor doesn't jump. */
+    /**
+     * True while the cell is being run again: the old output stays (dimmed) so the editor doesn't jump, until the
+     * cell writes something ([showLive]).
+     */
     var running: Boolean = false
         set(value) {
             if (field != value) {
                 field = value
+                if (value) {
+                    runningSince = System.currentTimeMillis()
+                    clock.start()
+                } else {
+                    clock.stop()
+                }
                 render()
+                remeasure()
             }
         }
 
-    private val dimmed get() = stale || running
+    /** True when the block shows what the running cell has written so far, rather than an earlier result. */
+    private var live = false
+
+    private val dimmed get() = stale || (running && !live)
 
     private val scheme get() = editor.colorsScheme
     private val blockBackground: Color get() = blend(scheme.defaultBackground, scheme.defaultForeground, 0.05)
@@ -108,14 +140,48 @@ class OutputBlock(
         summaryLabel.font = font
         summaryLabel.border = JBUI.Borders.empty(1, 8, 2, 8)
         summaryLabel.componentPopupMenu = textPane.componentPopupMenu
+        stopLink.font = JBUI.Fonts.smallFont()
+        stopLink.border = JBUI.Borders.empty(1, 0, 2, 8)
+        footer.isOpaque = false
+        footer.add(summaryLabel)
+        footer.add(stopLink)
 
         if (htmlView != null) add(htmlView.component, BorderLayout.CENTER)
         else if (content.lines.isNotEmpty()) add(scrollPane, BorderLayout.CENTER)
-        add(summaryLabel, BorderLayout.SOUTH)
+        add(footer, BorderLayout.SOUTH)
         render()
     }
 
-    override fun dispose() {}
+    override fun dispose() {
+        clock.stop()
+    }
+
+    /** False for a block showing HTML: live output then needs a new block. */
+    val canShowLive: Boolean get() = htmlView == null
+
+    /**
+     * Shows [output], written by the running cell so far, instead of the block's content, scrolled to its end.
+     * Only for blocks that [canShowLive].
+     */
+    fun showLive(output: CellOutput) {
+        check(canShowLive) { "An HTML block can't show live output." }
+        val hadLines = content.lines.isNotEmpty()
+        content = output
+        live = true
+        measuredTextWidth = -1
+        if (!running) running = true
+        if (output.lines.isNotEmpty() != hadLines) {
+            if (hadLines) remove(scrollPane) else add(scrollPane, BorderLayout.CENTER)
+        }
+        render()
+        remeasure()
+    }
+
+    /** Asks the editor to lay the block out again after its preferred size changed. */
+    private fun remeasure() {
+        revalidate()
+        inlay?.update()
+    }
 
     private fun htmlTheme() = HtmlTheme(
         background = blockBackground,
@@ -162,23 +228,36 @@ class OutputBlock(
             val attrs = SimpleAttributeSet().also { StyleConstants.setForeground(it, color(line.kind)) }
             doc.insertString(doc.length, if (i == 0) line.text else "\n" + line.text, attrs)
         }
-        textPane.caretPosition = 0
+        // Live output follows its end, like a terminal.
+        textPane.caretPosition = if (live) doc.length else 0
         htmlView?.setDimmed(dimmed)
 
-        summaryLabel.text = if (running) "running…" else content.summary
+        summaryLabel.text = if (running) runningText() else content.summary
         summaryLabel.foreground = if (running) blend(scheme.defaultForeground, scheme.defaultBackground, 0.4)
                                   else color(OutputLineKind.Dim)
+        stopLink.isVisible = running && onStop != null
         repaint()
     }
 
-    /** Width of the widest line. Measured once: the content and font don't change, and layout asks for it often. */
-    private val textWidth: Int by lazy {
-        val metrics = textPane.getFontMetrics(textPane.font)
-        content.lines.maxOfOrNull { metrics.stringWidth(it.text) } ?: 0
+    private fun runningText(): String {
+        val seconds = (System.currentTimeMillis() - runningSince) / 1000
+        return if (seconds < 1) "running…   " else "running… ${seconds} s   "
     }
 
+    private var measuredTextWidth = -1
+
+    /** Width of the widest line. Measured once per content: layout asks for it often. */
+    private val textWidth: Int
+        get() {
+            if (measuredTextWidth < 0) {
+                val metrics = textPane.getFontMetrics(textPane.font)
+                measuredTextWidth = content.lines.maxOfOrNull { metrics.stringWidth(it.text) } ?: 0
+            }
+            return measuredTextWidth
+        }
+
     override fun getPreferredSize(): Dimension {
-        val summaryHeight = summaryLabel.preferredSize.height
+        val summaryHeight = footer.preferredSize.height
         // Computed from font metrics, not from the text pane's own preferred size: that one is wrong until the pane
         // has been laid out, and the editor measures the block right when it's added. A wrong first size makes the
         // block shrink and grow again, which scrolls the editor.
@@ -186,7 +265,7 @@ class OutputBlock(
         val textInsets = textPane.insets
         val lineHeight = metrics.height
         val contentWidth = textWidth + textInsets.left + textInsets.right + JBUI.scale(6)
-        val summaryWidth = summaryLabel.preferredSize.width
+        val summaryWidth = footer.preferredSize.width
         val maxWidth = (editor.scrollingModel.visibleArea.width - JBUI.scale(40)).coerceAtLeast(JBUI.scale(300))
 
         if (htmlView != null) {

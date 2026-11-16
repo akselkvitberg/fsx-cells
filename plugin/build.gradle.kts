@@ -49,6 +49,12 @@ tasks.withType<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask>(
     }
 }
 
+// HostSessionTest runs the published host.
+tasks.test {
+    dependsOn(publishHost)
+    systemProperty("fsxcells.hostDll", hostOutput.get().file("FsxCells.Host.dll").asFile.absolutePath)
+}
+
 // The test IDE opens the samples folder.
 tasks.named<org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask>("runIde") {
     args(layout.projectDirectory.dir("../samples").asFile.absolutePath)

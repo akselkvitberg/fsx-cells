@@ -238,10 +238,32 @@ module ProtocolTests =
               TypeName = Some "int"
               Error = None
               Diagnostics = []
-              ElapsedMs = 5L }
+              ElapsedMs = 5L
+              Interrupted = false }
         Assert.Equal(
             """{"type":"result","id":7,"ok":true,"stdout":"hi\n","valueText":"2","typeName":"int","diagnostics":[],"elapsedMs":5}""",
             serializeEvalResponse "7" r)
+
+    [<Fact>]
+    let ``parses interrupt`` () =
+        Assert.Equal(Interrupt, parseRequest """{"type":"interrupt"}""")
+
+    [<Fact>]
+    let ``serializes interrupted results and output`` () =
+        let r =
+            { Ok = false
+              Stdout = ""
+              ValueText = None
+              ValueHtml = None
+              TypeName = None
+              Error = Some "Interrupted."
+              Diagnostics = []
+              ElapsedMs = 3L
+              Interrupted = true }
+        Assert.Equal(
+            """{"type":"result","id":2,"ok":false,"stdout":"","error":"Interrupted.","diagnostics":[],"elapsedMs":3,"interrupted":true}""",
+            serializeEvalResponse "2" r)
+        Assert.Equal("""{"type":"output","id":"a","text":"hi\n"}""", serializeOutput "\"a\"" "hi\n")
 
 module ProtocolHtmlTests =
 
@@ -255,7 +277,8 @@ module ProtocolHtmlTests =
               TypeName = Some "X"
               Error = None
               Diagnostics = []
-              ElapsedMs = 1L }
+              ElapsedMs = 1L
+              Interrupted = false }
         Assert.Equal(
             """{"type":"result","id":1,"ok":true,"stdout":"","valueText":"v","valueHtml":"<b>v</b>","typeName":"X","diagnostics":[],"elapsedMs":1}""",
             serializeEvalResponse "1" r)
@@ -508,6 +531,78 @@ type SessionTests() =
             Assert.Equal(Some "Nd\n  Next: Nd", d.ValueText)
         finally
             eval "fsi.PrintLength <- 100\nfsi.PrintDepth <- 100" 1 |> ignore
+
+    /// Waits for `task`, failing the test instead of hanging when it takes longer than `seconds`.
+    member private _.Within(seconds: float, task: Threading.Tasks.Task<EvalResult>) =
+        Assert.True(task.Wait(TimeSpan.FromSeconds seconds), "the evaluation didn't finish in time")
+        task.Result
+
+    /// Starts `code` and waits until it has written something, so it is running rather than being compiled.
+    member private _.StartRunning(code: string) =
+        let started = new Threading.ManualResetEventSlim()
+        let task = session.StartEval(code, 1, onOutput = fun _ -> started.Set())
+        Assert.True(started.Wait(TimeSpan.FromSeconds 30.0), "the cell didn't start")
+        task
+
+    [<Fact>]
+    member this.``interrupt stops a busy loop and the session keeps its values``() =
+        eval "let kept = 41" 1 |> ignore
+        let running = this.StartRunning "printfn \"go\"\nlet mutable n = 0L\nwhile true do n <- n + 1L"
+        session.Interrupt()
+        let r = this.Within(10.0, running)
+        Assert.False r.Ok
+        Assert.True r.Interrupted
+        Assert.Equal(Some "Interrupted.", r.Error)
+        // The interrupt that came for the loop doesn't stop a wait in a later cell.
+        let after = eval "System.Threading.Thread.Sleep 10\nkept + 1" 1
+        Assert.True(after.Ok, string after.Error)
+        Assert.Equal(Some "42", after.ValueText)
+
+    [<Fact>]
+    member this.``interrupt stops a sleeping cell and keeps the output so far``() =
+        let running = this.StartRunning "printfn \"before\"\nSystem.Threading.Thread.Sleep 60_000\nprintfn \"after\""
+        session.Interrupt()
+        let r = this.Within(10.0, running)
+        Assert.True r.Interrupted
+        Assert.Equal("before\n", r.Stdout)
+
+    [<Fact>]
+    member this.``interrupt skips queued evaluations but not later ones``() =
+        let running = this.StartRunning "printfn \"go\"\nSystem.Threading.Thread.Sleep 60_000"
+        let queued = session.StartEval("let skipped = 1", 1)
+        session.Interrupt()
+        let later = session.StartEval("1 + 1", 1)
+        Assert.True (this.Within(10.0, running)).Interrupted
+        let q = this.Within(10.0, queued)
+        Assert.True q.Interrupted
+        Assert.Equal(Some "Interrupted before it started.", q.Error)
+        Assert.Equal(Some "2", (this.Within(10.0, later)).ValueText)
+        Assert.False (eval "skipped" 1).Ok
+
+    [<Fact>]
+    member _.``interrupt with nothing running changes nothing``() =
+        session.Interrupt()
+        let r = eval "3" 1
+        Assert.True(r.Ok, string r.Error)
+        Assert.False r.Interrupted
+
+    [<Fact>]
+    member this.``output is passed on while the cell runs``() =
+        let chunks = Collections.Concurrent.ConcurrentQueue<string>()
+        let running =
+            session.StartEval("printfn \"one\"\nSystem.Threading.Thread.Sleep 1500\nprintf \"two\"", 1, onOutput = chunks.Enqueue)
+        // The first line arrives while the cell still sleeps.
+        let sw = Diagnostics.Stopwatch.StartNew()
+        while chunks.IsEmpty && sw.ElapsedMilliseconds < 1000L do Threading.Thread.Sleep 20
+        Assert.False(running.IsCompleted, "the cell finished before its first output was passed on")
+        Assert.Equal("one\n", String.Concat chunks)
+        let r = this.Within(10.0, running)
+        Assert.True(r.Ok, string r.Error)
+        Assert.Equal("one\ntwo", r.Stdout)
+        // Nothing comes after the result; the result has all of it.
+        let count = chunks.Count
+        Threading.Thread.Sleep 300
+        Assert.Equal(count, chunks.Count)
 
 module HostProcessTests =
 

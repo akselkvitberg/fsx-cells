@@ -1,0 +1,77 @@
+package fsxcells
+
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+/** Runs cells in the real host (published by the build), with `dotnet` from PATH. */
+class HostSessionTest {
+    @get:Rule
+    val temp = TemporaryFolder()
+
+    private lateinit var session: HostSession
+
+    @Before
+    fun start() {
+        val dll = File(System.getProperty("fsxcells.hostDll") ?: error("Run this test with Gradle: it needs fsxcells.hostDll"))
+        val script = temp.newFile("test.fsx")
+        session = HostSession(script.absolutePath, listOf("dotnet", dll.absolutePath), System.getenv())
+    }
+
+    @After
+    fun stop() = session.dispose()
+
+    private fun <T> java.util.concurrent.Future<T>.within(seconds: Long): T = get(seconds, TimeUnit.SECONDS)
+
+    @Test
+    fun `output arrives while the cell runs, and interrupt stops it`() {
+        val chunks = ConcurrentLinkedQueue<String>()
+        val started = CountDownLatch(1)
+        val running = session.eval("printfn \"one\"\nSystem.Threading.Thread.Sleep 60_000", 1) {
+            chunks += it
+            started.countDown()
+        }
+        assertTrue("no output while the cell ran", started.await(60, TimeUnit.SECONDS))
+        assertFalse(running.isDone)
+        assertTrue(session.isBusy)
+
+        val waiting = session.interrupt()
+        val result = running.within(10)
+        assertTrue(result.interrupted)
+        assertFalse(result.ok)
+        assertEquals("Interrupted.", result.error)
+        assertEquals("one\n", result.stdout)
+        assertEquals("one\n", chunks.joinToString(""))
+        assertFalse(session.isWaitingFor(waiting))
+        assertFalse(session.isBusy)
+
+        val after = session.eval("1 + 1", 1).within(30)
+        assertTrue(after.ok)
+        assertFalse(after.interrupted)
+        assertEquals("2", after.valueText)
+    }
+
+    @Test
+    fun `interrupt with nothing running sends nothing`() {
+        assertTrue(session.interrupt().isEmpty())
+        assertEquals("3", session.eval("3", 1).within(60).valueText)
+    }
+
+    @Test
+    fun `dispose answers waiting cells with its message`() {
+        val running = session.eval("System.Threading.Thread.Sleep 60_000", 1)
+        session.dispose("stopped for the test")
+        val result = running.within(10)
+        assertFalse(result.ok)
+        assertEquals("stopped for the test", result.error)
+    }
+}

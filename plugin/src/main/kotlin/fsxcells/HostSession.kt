@@ -37,40 +37,52 @@ data class EvalResult(
     val diagnostics: List<Diagnostic> = emptyList(),
     /** The value as HTML, when it has a table or object layout. */
     val valueHtml: String? = null,
+    /** True when the cell was stopped by [HostSession.interrupt]. */
+    val interrupted: Boolean = false,
 )
 
 /** One `FsxCells.Host` process, bound to one .fsx file. */
-class HostSession(private val scriptPath: String) {
+class HostSession private constructor(private val scriptPath: String, launch: () -> Pair<List<String>, Map<String, String>>) {
+    /**
+     * Finds dotnet and checks its SDK before starting the host; throws [DotnetSetupException] if it can't run cells.
+     * Starts processes: don't create one on the UI thread.
+     */
+    constructor(scriptPath: String) : this(scriptPath, {
+        val dotnet = Dotnet.resolve(File(scriptPath).absoluteFile.parentFile)
+        listOf(dotnet.path, hostDll().absolutePath) to Dotnet.environment(dotnet, Dotnet.environment())
+    })
+
+    /** Runs the host with [command] and [environment] as they are (for tests). */
+    internal constructor(scriptPath: String, command: List<String>, environment: Map<String, String>) :
+        this(scriptPath, { command to environment })
+
     private val log = logger<HostSession>()
     private val gson = Gson()
     private val nextId = AtomicInteger(1)
     private val pending = ConcurrentHashMap<Int, CompletableFuture<EvalResult>>()
 
+    /** Called with console output of a running evaluation, by id (on the stdout reader thread). */
+    private val outputListeners = ConcurrentHashMap<Int, (String) -> Unit>()
+
     private val process: Process
     private val stdin: OutputStreamWriter
 
     /**
-     * Requests waiting to be written to the host. A writer thread drains it: the host only reads stdin between
-     * evaluations, so writing from the caller (the UI thread) would block it once the pipe buffer is full.
+     * Requests waiting to be written to the host. A writer thread drains it, so the caller (often the UI thread)
+     * never blocks on a full pipe.
      */
     private val outbox = LinkedBlockingQueue<Pair<Int?, String>>()
 
     /** The host's last stderr lines, shown when it exits unexpectedly (an unhandled exception's message and stack). */
     private val stderrTail = ArrayDeque<String>()
 
-    /**
-     * Finds dotnet and checks its SDK before starting the host; throws [DotnetSetupException] if it can't run cells.
-     * Starts processes: don't create one on the UI thread.
-     */
     init {
         val scriptDir = File(scriptPath).absoluteFile.parentFile
-        val dll = hostDll()
-        val dotnet = Dotnet.resolve(scriptDir)
-        val command = listOf(dotnet.path, dll.absolutePath)
+        val (command, environment) = launch()
         log.info("Starting fsx-cells host: ${command.joinToString(" ")} for $scriptPath")
         process = ProcessBuilder(command)
             .directory(scriptDir)
-            .apply { environment().putAll(Dotnet.environment(dotnet, Dotnet.environment())) }
+            .apply { environment().putAll(environment) }
             .start()
         stdin = OutputStreamWriter(process.outputStream, StandardCharsets.UTF_8)
 
@@ -106,11 +118,18 @@ class HostSession(private val scriptPath: String) {
 
     /**
      * Evaluates [code]; [startLine] is the 1-based script line of the first line of code. [display] asks the host to
-     * show the value as an image or HTML.
+     * show the value as an image or HTML. [onOutput] gets what the code writes to the console while it runs, from a
+     * background thread; the result's stdout has all of it, and [onOutput] isn't called after the result.
      */
-    fun eval(code: String, startLine: Int, display: CellDisplay? = null): CompletableFuture<EvalResult> {
+    fun eval(
+        code: String,
+        startLine: Int,
+        display: CellDisplay? = null,
+        onOutput: ((String) -> Unit)? = null,
+    ): CompletableFuture<EvalResult> {
         val id = nextId.getAndIncrement()
         val future = CompletableFuture<EvalResult>()
+        if (onOutput != null) outputListeners[id] = onOutput
         pending[id] = future
         send(id, JsonObject().apply {
             addProperty("type", "eval")
@@ -122,9 +141,26 @@ class HostSession(private val scriptPath: String) {
         return future
     }
 
-    fun dispose() {
+    /**
+     * Asks the host to stop the running evaluation and the queued ones; they answer with an interrupted result.
+     * Returns the evaluations that were waiting for an answer, for [isWaitingFor].
+     */
+    fun interrupt(): Set<Int> {
+        val waiting = pending.keys.toSet()
+        if (waiting.isNotEmpty()) send(null, JsonObject().apply { addProperty("type", "interrupt") })
+        return waiting
+    }
+
+    /** True if any of [ids] has no answer yet. */
+    fun isWaitingFor(ids: Set<Int>): Boolean = ids.any(pending::containsKey)
+
+    /** True while an evaluation has no answer yet. */
+    val isBusy: Boolean get() = pending.isNotEmpty()
+
+    /** Stops the host; evaluations still waiting get [message] as their error. */
+    fun dispose(message: String = "The F# session was stopped.") {
         outbox.put(STOP)
-        failPending("The F# session was stopped.")
+        failPending(message)
         process.toHandle().descendants().forEach { it.destroyForcibly() }
         process.destroyForcibly()
     }
@@ -159,7 +195,13 @@ class HostSession(private val scriptPath: String) {
                     log.warn("Host message without id: $line")
                     return@forEachLine
                 }
-                val future = pending.remove(idElement.asInt) ?: return@forEachLine
+                val id = idElement.asInt
+                if (obj.string("type") == "output") {
+                    outputListeners[id]?.invoke(obj.string("text") ?: "")
+                    return@forEachLine
+                }
+                outputListeners.remove(id)
+                val future = pending.remove(id) ?: return@forEachLine
                 future.complete(
                     EvalResult(
                         ok = obj.get("ok")?.asBoolean ?: false,
@@ -181,6 +223,7 @@ class HostSession(private val scriptPath: String) {
                             )
                         } ?: emptyList(),
                         valueHtml = obj.string("valueHtml"),
+                        interrupted = obj.get("interrupted")?.asBoolean ?: false,
                     )
                 )
             } catch (e: Exception) {
@@ -199,10 +242,12 @@ class HostSession(private val scriptPath: String) {
     }
 
     private fun failPending(error: Throwable) {
+        outputListeners.clear()
         pending.keys.toList().forEach { id -> pending.remove(id)?.completeExceptionally(error) }
     }
 
     private fun failPending(message: String) {
+        outputListeners.clear()
         val result = EvalResult(false, "", null, null, message, 0)
         pending.keys.toList().forEach { id -> pending.remove(id)?.complete(result) }
     }

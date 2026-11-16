@@ -18,10 +18,13 @@ let private run () =
     Console.SetOut stderr
     Console.SetError stderr
 
+    // Called from the reader thread, the evaluation thread (output) and result continuations.
+    let sendGate = obj ()
     let send (line: string) =
-        protocolOut.Write line
-        protocolOut.Write '\n'
-        protocolOut.Flush()
+        lock sendGate (fun () ->
+            protocolOut.Write line
+            protocolOut.Write '\n'
+            protocolOut.Flush())
 
     use session =
         try
@@ -31,6 +34,8 @@ let private run () =
             eprintfn "fsx-cells host failed to start: %O" e
             reraise ()
 
+    // Requests are read while a cell runs, so `interrupt` takes effect at once; evaluations queue up and run in order.
+    let results = Collections.Generic.List<Threading.Tasks.Task>()
     let rec loop () =
         match protocolIn.ReadLine() with
         | null -> ()
@@ -39,13 +44,21 @@ let private run () =
             try
                 match parseRequest line with
                 | Init path -> session.Init path
+                | Interrupt -> session.Interrupt()
                 | Eval(id, code, startLine, display) ->
-                    send (serializeEvalResponse id (session.Eval(code, startLine, ?display = display)))
+                    let evaluation =
+                        session.StartEval(code, startLine, ?display = display, onOutput = (fun text -> send (serializeOutput id text)))
+                    results.Add(
+                        evaluation.ContinueWith(fun (t: Threading.Tasks.Task<EvalResult>) ->
+                            if t.IsCompletedSuccessfully then send (serializeEvalResponse id t.Result)
+                            else send (serializeProtocolError (Some id) (t.Exception.GetBaseException().Message))))
             with e ->
                 send (serializeProtocolError (tryReadId line) e.Message)
             loop ()
 
     loop ()
+    // stdin closed: answer what was asked before exiting.
+    Threading.Tasks.Task.WaitAll(results.ToArray())
     0
 
 [<EntryPoint>]

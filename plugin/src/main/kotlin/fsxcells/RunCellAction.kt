@@ -12,6 +12,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.atomic.AtomicBoolean
 
 private fun isFsx(file: VirtualFile?) = file != null && file.extension.equals("fsx", ignoreCase = true)
 
@@ -52,16 +53,35 @@ object CellRunner {
             .toString()
 
         val outputs = CellOutputs.of(editor)
-        val runningBlock = outputs.markRunning(cell)
+        var runningBlock = outputs.markRunning(cell)
         // Follows the cell through edits made while it runs; the stamp tells whether line numbers still match.
         val key = CellKey.of(document, cell)
         val stampAtSend = document.modificationStamp
 
-        val future = HostSessionManager.getInstance(project).eval(file.path, code, cell.firstLine + 1, cell.display)
+        // Output written while the cell runs, shown as it comes. Both this and the result are handled on the UI
+        // thread in the order they arrived, so live output never replaces the result.
+        var finished = false
+        val written = StringBuilder()
+        val updateQueued = AtomicBoolean(false)
+        val onOutput: (String) -> Unit = { text ->
+            synchronized(written) { written.append(text) }
+            if (updateQueued.compareAndSet(false, true)) {
+                ApplicationManager.getApplication().invokeLater({
+                    updateQueued.set(false)
+                    if (finished || editor.isDisposed) return@invokeLater
+                    val current = key.resolve(document) ?: return@invokeLater
+                    val soFar = synchronized(written) { written.toString() }
+                    outputs.showLive(current, OutputFormatter.live(soFar))?.let { runningBlock = it }
+                }, ModalityState.any())
+            }
+        }
+
+        val future = HostSessionManager.getInstance(project).eval(file.path, code, cell.firstLine + 1, cell.display, onOutput)
 
         future.whenComplete { result, error ->
             ApplicationManager.getApplication().invokeLater({
                 var ok = false
+                finished = true
                 try {
                     if (editor.isDisposed) return@invokeLater
                     val current = key.resolve(document)
@@ -155,6 +175,21 @@ class RunCellAndAddBelowAction : FsxAction() {
 class RunAllCellsAction : FsxAction() {
     override fun perform(project: Project, editor: Editor, file: VirtualFile) {
         CellCommands(project, editor, file).runAll()
+    }
+}
+
+/** Stop the cell running in this file, and the ones waiting to run after it. The session keeps its values. */
+class InterruptCellAction : FsxAction() {
+    override fun update(e: AnActionEvent) {
+        super.update(e)
+        val project = e.project ?: return
+        val (_, file) = e.fsxEditor() ?: return
+        // Disabled when nothing runs, so the shortcut keeps its usual meaning (Stop) then.
+        e.presentation.isEnabled = HostSessionManager.getInstance(project).isBusy(file.path)
+    }
+
+    override fun perform(project: Project, editor: Editor, file: VirtualFile) {
+        HostSessionManager.getInstance(project).interrupt(file.path)
     }
 }
 
