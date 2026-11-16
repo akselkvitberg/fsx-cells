@@ -93,12 +93,13 @@ let barChart (data: (string * int) list) =
             let y = i * rowH + 6
             let len = float (w - labelW - 50) * float v / maxV |> int |> max 2
             $"""<text x="{labelW - 8}" y="{y + 15}" text-anchor="end">{label}</text>
-<rect x="{labelW}" y="{y + 2}" width="{len}" height="{rowH - 8}" rx="3" fill="#6b8afd"/>
-<text x="{labelW + len + 6}" y="{y + 15}">{v}</text>""")
+                <rect x="{labelW}" y="{y + 2}" width="{len}" height="{rowH - 8}" rx="3" fill="#6b8afd"/>
+                <text x="{labelW + len + 6}" y="{y + 15}">{v}</text>""")
         |> String.concat "\n"
-    $"""<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{data.Length * rowH + 12}" font-family="sans-serif" font-size="13" fill="#888">
-{bars}
-</svg>"""
+    $"""<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{data.Length * rowH + 12}"
+             font-family="sans-serif" font-size="13" fill="#888">
+            {bars}
+        </svg>"""
 
 planets |> List.map (fun p -> p.Name, p.Moons) |> barChart
 
@@ -106,8 +107,10 @@ planets |> List.map (fun p -> p.Name, p.Moons) |> barChart
 // [html] shows a string as HTML.
 let card (p: Planet) =
     let rings = if p.Rings then "💍 rings" else "no rings"
-    $"""<div style="display:inline-block;margin:4px;padding:8px 12px;border-radius:8px;border:1px solid #8884">
-<b>{p.Name}</b><br><small>{p.DistanceAu} AU · {p.Moons} moons · {rings}</small></div>"""
+    $"""<div style="display:inline-block; margin:4px; padding:8px 12px; border-radius:8px; border:1px solid #8884">
+            <b>{p.Name}</b><br>
+            <small>{p.DistanceAu:F2} AU · {p.Moons} moons · {rings}</small>
+        </div>"""
 
 planets |> List.map card |> String.concat ""
 
