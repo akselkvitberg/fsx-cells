@@ -29,6 +29,31 @@ module FormattingTests =
         Assert.Equal(Some "[1; 2; 3]", fmt [ 1; 2; 3 ])
         Assert.Equal(Some "42", fmt 42)
 
+    /// Runs `f` with a culture whose own date format differs from ISO 8601 (20.07.1969).
+    let withNorwegianCulture f =
+        let previous = Globalization.CultureInfo.CurrentCulture
+        Globalization.CultureInfo.CurrentCulture <- Globalization.CultureInfo("nb-NO")
+        try f () finally Globalization.CultureInfo.CurrentCulture <- previous
+
+    [<Fact>]
+    let ``dates and times are ISO 8601 whatever the culture`` () =
+        withNorwegianCulture (fun () ->
+            Assert.Equal(Some "1969-07-20", fmt (DateOnly(1969, 7, 20)))
+            Assert.Equal(Some "1969-07-20", fmt (DateTime(1969, 7, 20)))
+            Assert.Equal(Some "1969-07-20 20:17:40", fmt (DateTime(1969, 7, 20, 20, 17, 40)))
+            Assert.Equal(Some "1969-07-20 20:17:40.5Z", fmt (DateTime(1969, 7, 20, 20, 17, 40, 500, DateTimeKind.Utc)))
+            Assert.Equal(Some "1969-07-20 00:00:00Z", fmt (DateTime(1969, 7, 20, 0, 0, 0, DateTimeKind.Utc)))
+            Assert.Equal(Some "1969-07-20 20:17:40 +02:00", fmt (DateTimeOffset(1969, 7, 20, 20, 17, 40, TimeSpan.FromHours 2.0)))
+            Assert.Equal(Some "20:17:40.25", fmt (TimeOnly(20, 17, 40, 250))))
+
+    [<Fact>]
+    let ``dates in tables and HTML are ISO 8601 too`` () =
+        withNorwegianCulture (fun () ->
+            let rows = [ {| Event = "Landing"; On = DateOnly(1969, 7, 20) |} ]
+            Assert.Contains("1969-07-20", (fmt rows).Value)
+            Assert.Contains("1969-07-20", (Formatting.formatHtml (box rows) (rows.GetType())).Value)
+            Assert.DoesNotContain("20.07.1969", (fmt rows).Value))
+
     [<Fact>]
     let ``char grids, string arrays and point sets have no layout of their own`` () =
         Assert.Equal(Some "[|\"x\"; \"y\"|]", fmt [| "x"; "y" |])
