@@ -6,8 +6,15 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 
 ### Added
 
+- Interrupt a running cell with the Stop link under it or Ctrl+F2; the session keeps its values.
+- What a cell prints is shown while it runs, with the time it has been running.
+
+## [0.1.0] - 2026-11-16
+
+### Added
+
 - Run cells of `.fsx` files, delimited by `// %%` or `(* cell *)` lines, with Ctrl+Enter, Shift+Enter and
-  Ctrl+Shift+Enter, and see the result under the cell.
+  Ctrl+Shift+Enter (⌘↩, ⇧↩ and ⌘⇧↩ on macOS), and see the result under the cell.
 - A toolbar above each cell and a run icon in the gutter, with Run All Cells, Run Cells Up to Here and more.
 - One F# session per file, using the F# compiler of the installed .NET 10+ SDK.
 - Tables for sequences of records, objects and unions, and property trees for objects, drawn as HTML when the
@@ -19,5 +26,6 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 - A notification explains a missing `dotnet` or a .NET SDK older than 10 (including one pinned by `global.json`),
   with links to download .NET and to the settings.
 - Cells don't run in a project Rider doesn't trust; a notification offers to trust it.
-- Interrupt a running cell with the Stop link under it or Ctrl+F2; the session keeps its values.
-- What a cell prints is shown while it runs, with the time it has been running.
+
+[Unreleased]: https://github.com/akselkvitberg/fsx-cells/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/akselkvitberg/fsx-cells/commits/v0.1.0

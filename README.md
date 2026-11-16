@@ -16,10 +16,13 @@ grid.Length
   Text before the first marker is a cell too.
 - Files stay ordinary scripts: `dotnet fsi day01.fsx` runs the whole thing.
 - Shortcuts (in .fsx files only; elsewhere the keys keep their usual meaning):
-  - Ctrl+Enter: run the cell under the caret.
-  - Shift+Enter: run it and move to the next cell (on the last cell, add a new one).
-  - Ctrl+Shift+Enter: run it and add a new cell below.
-  - Ctrl+F2: interrupt the running cell (also the Stop link under it). The session keeps its values.
+  - Ctrl+Enter (⌘↩ on macOS): run the cell under the caret.
+  - Shift+Enter (⇧↩): run it and move to the next cell (on the last cell, add a new one).
+  - Ctrl+Shift+Enter (⌘⇧↩): run it and add a new cell below.
+  - Ctrl+F2 (⌘F2): interrupt the running cell (also the Stop link under it). The session keeps its values.
+
+  In .fsx files these take the place of Split Line, Start New Line and Complete Statement. To use other keys, search
+  for "FSX Cells" in Settings | Keymap. Send to F# Interactive (Ctrl+\\) still works as before.
 - Each cell has a toolbar above it (Run cell, Run up to here, Add cell above) and a run icon in the gutter;
   right-click the icon for Run All Cells, Add Cell Below and more.
 - What a cell prints shows up while it runs.
@@ -30,6 +33,8 @@ grid.Length
 Requires a .NET 10 or newer SDK: cells are compiled by the installed SDK's F# compiler, the one `dotnet fsi` uses
 in the script's folder. `dotnet` is found on PATH or in the usual install folders; to use another one, set its path
 in Settings | Tools | FSX Cells.
+
+Cells run on the machine Rider runs on. Remote development (JetBrains Gateway) isn't supported.
 <!-- Plugin description end -->
 
 ## Layout
