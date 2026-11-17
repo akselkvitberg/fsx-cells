@@ -68,6 +68,7 @@ class DotnetTest {
         // absoluteFile: on Windows the folder gets the current drive.
         assertEquals("${File("/opt/sdk/dotnet").absoluteFile.parent}$sep/bin$sep/usr/bin", env["PATH"])
         assertEquals("/home/me", env["HOME"])
+        assertEquals("1", env["DOTNET_NOLOGO"])
         // Already first: unchanged.
         assertEquals(env, Dotnet.environment(File("/opt/sdk/dotnet"), env))
     }

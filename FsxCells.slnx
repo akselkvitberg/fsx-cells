@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="host/FsxCells.Host/FsxCells.Host.fsproj" />
+  <Project Path="host/FsxCells.Host.Tests/FsxCells.Host.Tests.fsproj" />
+</Solution>

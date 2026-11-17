@@ -111,6 +111,12 @@ module ObjectFormattingTests =
             lines (fmt people))
 
     [<Fact>]
+    let ``line breaks in a string field stay inside the table cell`` () =
+        Assert.Equal<string list>(
+            [ "# │ Name         │ Age"; "──┼──────────────┼────"; "0 │ Ada Lovelace │   1" ],
+            lines (fmt [ { Name = "Ada\r\nLovelace"; Age = 1 } ]))
+
+    [<Fact>]
     let ``a single record keeps %A`` () =
         Assert.Equal(Some "{ Name = \"Ada\"\n  Age = 36 }", fmt people.Head)
 
@@ -643,8 +649,7 @@ module HostProcessTests =
         let config = DirectoryInfo(testDir).Parent.Name // bin/<config>/net10.0
         Path.GetFullPath(Path.Combine(testDir, "..", "..", "..", "..", "FsxCells.Host", "bin", config, "net10.0", "FsxCells.Host.dll"))
 
-    [<Fact>]
-    let ``the host process loads F# from the installed SDK and runs cells`` () =
+    let startHost () =
         let scriptPath = makeScriptDir ()
         let info = ProcessStartInfo("dotnet", "\"" + hostDll () + "\"")
         info.WorkingDirectory <- Path.GetDirectoryName scriptPath
@@ -657,8 +662,13 @@ module HostProcessTests =
         info.StandardOutputEncoding <- utf8
         info.StandardErrorEncoding <- utf8
         info.UseShellExecute <- false
-        use p = Process.Start info
+        let p = Process.Start info
         p.StandardInput.WriteLine(sprintf """{"type":"init","scriptPath":%s}""" (Text.Json.JsonSerializer.Serialize scriptPath))
+        p
+
+    [<Fact>]
+    let ``the host process loads F# from the installed SDK and runs cells`` () =
+        use p = startHost ()
         p.StandardInput.WriteLine("""{"type":"eval","id":1,"code":"typeof<int list>.Assembly.Location"}""")
         p.StandardInput.WriteLine("""{"type":"eval","id":2,"code":"fsi.AddPrinter(fun (x: int) -> \"I\" + string x)\n[ {| N = 1 |} ]"}""")
         p.StandardInput.Close()
@@ -672,3 +682,37 @@ module HostProcessTests =
         Assert.Equal("sdk", Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName location))))
         Assert.Equal("# │ N\n──┼───\n0 │ I1", table.GetProperty("valueText").GetString())
         Assert.Equal(0, p.ExitCode)
+
+    [<Fact>]
+    let ``a cell reading stdin gets no input and does not swallow the next request`` () =
+        use p = startHost ()
+        p.StandardInput.WriteLine("""{"type":"eval","id":1,"code":"printf \"%A\" (stdin.ReadLine())"}""")
+        let first = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        Assert.True(first.GetProperty("ok").GetBoolean(), string first)
+        Assert.Equal("<null>", first.GetProperty("stdout").GetString())
+        p.StandardInput.WriteLine("""{"type":"eval","id":2,"code":"1 + 1"}""")
+        let second = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        Assert.Equal("2", second.GetProperty("valueText").GetString())
+        p.StandardInput.Close()
+        Assert.True(p.WaitForExit 30_000, "the host did not exit")
+
+    [<Fact>]
+    let ``the host exits after stdin closes even when a cell never ends`` () =
+        use p = startHost ()
+        p.StandardInput.WriteLine("""{"type":"eval","id":1,"code":"while true do ()"}""")
+        // Let the cell start (the first line is the start of the evaluation, there is no message for it).
+        Threading.Thread.Sleep 3000
+        p.StandardInput.Close()
+        let exited = p.WaitForExit 60_000
+        if not exited then p.Kill true
+        Assert.True(exited, "the host kept running after stdin closed")
+        // The cell was asked for, so it is answered (as interrupted) when the host could get it stopped.
+        let result = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        Assert.True(result.GetProperty("interrupted").GetBoolean())
+
+module SdkTests =
+
+    [<Fact>]
+    let ``the SDK version is the last non-blank line of dotnet --version`` () =
+        Assert.Equal("10.0.103", Sdk.parseSdkVersion "10.0.103\n")
+        Assert.Equal("10.0.103", Sdk.parseSdkVersion "Welcome to .NET 10.0!\r\nTelemetry...\r\n\r\n10.0.103\r\n\r\n")

@@ -30,8 +30,10 @@ class CellKey private constructor(private val marker: RangeMarker?) {
     val isValid: Boolean get() = marker == null || marker.isValid
 
     /** The cell this key refers to now, or null if its marker line is gone. */
-    fun resolve(document: Document): Cell? {
-        val cells = CellParser.parse(document.charsSequence)
+    fun resolve(document: Document): Cell? = resolveIn(CellParser.parse(document.charsSequence), document)
+
+    /** Like [resolve], in already parsed [cells]. */
+    fun resolveIn(cells: List<Cell>, document: Document): Cell? {
         if (marker == null) return cells.firstOrNull { it.markerLine < 0 }
         if (!marker.isValid) return null
         val line = document.getLineNumber(marker.startOffset)
@@ -67,9 +69,10 @@ class CellOutputs private constructor(private val editor: Editor) {
 
     /**
      * Replaces the output block of [cell]. When [result] is given, its errors are underlined in the script
-     * (callers pass it only if the document hasn't changed since the cell was sent, so line numbers still match).
+     * (callers pass it only if the cell's text hasn't changed since it was sent; [lineShift] is how many lines the
+     * cell has moved since, so the result's line numbers still match).
      */
-    fun show(cell: Cell, output: CellOutput, result: EvalResult? = null) {
+    fun show(cell: Cell, output: CellOutput, result: EvalResult? = null, lineShift: Int = 0) {
         val editorEx = editor as? EditorEx ?: return
         val existing = find(cell)
         if (existing != null) removeHighlighters(existing)
@@ -101,7 +104,7 @@ class CellOutputs private constructor(private val editor: Editor) {
 
         val entry = existing?.also { it.inlay = inlay; it.block = block }
             ?: Entry(CellKey.of(document, cell), inlay, block).also { entries += it }
-        if (result != null) addErrorHighlights(entry, result)
+        if (result != null) addErrorHighlights(entry, result, lineShift)
     }
 
     /**
@@ -133,6 +136,22 @@ class CellOutputs private constructor(private val editor: Editor) {
         val project = editor.project ?: return
         val file = FileDocumentManager.getInstance().getFile(document) ?: return
         HostSessionManager.getInstance(project).interrupt(file.path)
+    }
+
+    /**
+     * Moves blocks that are no longer at the end of their cell (after a marker was inserted above the block's line,
+     * or lines were added at the end of the cell). [cells] is the current parse of the document. Blocks of running
+     * cells stay: their result is shown at the right place when it arrives.
+     */
+    fun realign(cells: List<Cell>) {
+        for (entry in entries.toList()) {
+            if (!entry.key.isValid || !entry.inlay.isValid || entry.block.running) continue
+            val cell = entry.key.resolveIn(cells, document) ?: continue
+            if (entry.inlay.offset == blockOffset(cell)) continue
+            val stale = entry.block.stale
+            show(cell, entry.block.content)
+            find(cell)?.block?.stale = stale
+        }
     }
 
     /** Greys out the output of the cell containing [offset] (called after an edit). */
@@ -184,10 +203,10 @@ class CellOutputs private constructor(private val editor: Editor) {
     }
 
     /** Wavy underlines for compile errors in this script, and for the script line a runtime exception came from. */
-    private fun addErrorHighlights(entry: Entry, result: EvalResult) {
+    private fun addErrorHighlights(entry: Entry, result: EvalResult, lineShift: Int) {
         val scriptPath = FileDocumentManager.getInstance().getFile(document)?.path ?: return
 
-        fun lineStart(line1: Int) = document.getLineStartOffset((line1 - 1).coerceIn(0, document.lineCount - 1))
+        fun lineStart(line1: Int) = document.getLineStartOffset((line1 - 1 + lineShift).coerceIn(0, document.lineCount - 1))
         fun add(start: Int, end: Int, message: String, color: Color) {
             val s = start.coerceIn(0, document.textLength)
             val e = end.coerceIn(s, document.textLength)
@@ -218,7 +237,7 @@ class CellOutputs private constructor(private val editor: Editor) {
         val error = result.error ?: return
         if (result.diagnostics.any { it.severity == "error" }) return
         val frame = STACK_LINE.findAll(error).firstOrNull { samePath(it.groupValues[1], scriptPath) } ?: return
-        val line = frame.groupValues[2].toInt() - 1
+        val line = frame.groupValues[2].toInt() - 1 + lineShift
         if (line !in 0 until document.lineCount) return
         val text = lineText(line)
         val indent = text.indexOfFirst { !it.isWhitespace() }.coerceAtLeast(0)
@@ -249,6 +268,9 @@ object OutputFormatter {
         if (stdout.isNotEmpty()) stdout.lines().forEach { lines += OutputLine(it) }
         result.valueText?.lines()?.forEach { lines += OutputLine(it) }
         result.error?.lines()?.forEach { lines += OutputLine(it, OutputLineKind.Error) }
+        for (d in result.diagnostics) {
+            if (d.severity == "warning") lines += OutputLine("(${d.startLine},${d.startCol + 1}): ${d.message}", OutputLineKind.Dim)
+        }
 
         val fullText = lines.joinToString("\n") { it.text }
         val html = HtmlPage.body(result)

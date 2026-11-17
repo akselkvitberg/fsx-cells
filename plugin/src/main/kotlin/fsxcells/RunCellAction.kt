@@ -4,20 +4,34 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import java.awt.event.KeyEvent
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.swing.SwingUtilities
 
 private fun isFsx(file: VirtualFile?) = file != null && file.extension.equals("fsx", ignoreCase = true)
 
+/**
+ * The main .fsx editor this event is for (not a diff or preview editor). For keyboard shortcuts the focus must be in
+ * the editor itself: in its find/replace field the data context still has the host editor, but Enter keys belong
+ * to the field. Menus, toolbars and gutter popups are not checked, their focus may be elsewhere.
+ */
 private fun AnActionEvent.fsxEditor(): Pair<Editor, VirtualFile>? {
     val editor = getData(CommonDataKeys.EDITOR) ?: return null
+    if (editor.editorKind != EditorKind.MAIN_EDITOR) return null
+    if (inputEvent is KeyEvent) {
+        val focused = getData(PlatformDataKeys.CONTEXT_COMPONENT)
+        if (focused != null && !SwingUtilities.isDescendingFrom(focused, editor.contentComponent)) return null
+    }
     val file = getData(CommonDataKeys.VIRTUAL_FILE) ?: FileDocumentManager.getInstance().getFile(editor.document)
     return if (file != null && isFsx(file)) editor to file else null
 }
@@ -48,15 +62,15 @@ object CellRunner {
         val done = CompletableFuture<Boolean>()
         if (cell.isEmpty) return done.also { it.complete(true) }
         val document = editor.document
-        val code = document.charsSequence
-            .subSequence(document.getLineStartOffset(cell.firstLine), document.getLineEndOffset(cell.lastLine))
-            .toString()
+        val codeStart = document.getLineStartOffset(cell.firstLine)
+        val code = document.charsSequence.subSequence(codeStart, document.getLineEndOffset(cell.lastLine)).toString()
 
         val outputs = CellOutputs.of(editor)
         var runningBlock = outputs.markRunning(cell)
-        // Follows the cell through edits made while it runs; the stamp tells whether line numbers still match.
+        // Follows the cell through edits made while it runs. The code marker tells whether the cell's own text is
+        // unchanged (edits elsewhere, like a cell added below, don't matter) and where its lines are now.
         val key = CellKey.of(document, cell)
-        val stampAtSend = document.modificationStamp
+        val codeMarker = document.createRangeMarker(codeStart, codeStart + code.length)
 
         // Output written while the cell runs, shown as it comes. Both this and the result are handled on the UI
         // thread in the order they arrived, so live output never replaces the result.
@@ -95,11 +109,14 @@ object CellRunner {
                         outputs.show(current, OutputFormatter.failure(cause.message ?: cause.toString()))
                     } else {
                         ok = result.ok
-                        val unchanged = document.modificationStamp == stampAtSend
-                        outputs.show(current, OutputFormatter.format(result), if (unchanged) result else null)
+                        val unchanged = codeMarker.isValid && codeMarker.endOffset - codeMarker.startOffset == code.length &&
+                            document.charsSequence.subSequence(codeMarker.startOffset, codeMarker.endOffset).toString() == code
+                        val lineShift = if (unchanged) document.getLineNumber(codeMarker.startOffset) - cell.firstLine else 0
+                        outputs.show(current, OutputFormatter.format(result), if (unchanged) result else null, lineShift)
                     }
                 } finally {
                     key.dispose()
+                    codeMarker.dispose()
                     done.complete(ok)
                 }
             }, ModalityState.any())

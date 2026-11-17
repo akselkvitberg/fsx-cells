@@ -338,7 +338,7 @@ let rec private inlineText (depth: int) (nested: bool) (v: obj) : string =
         let tooDeep = depth >= depthLimit ()
         match kindOf v with
         | Null -> "<null>"
-        | Scalar -> scalarText nested v
+        | Scalar -> collapse (scalarText nested v)
         | FSharpValue -> collapse (formatA v (v.GetType()))
         | Record
         | PlainObject when tooDeep -> typeDisplayName (v.GetType())

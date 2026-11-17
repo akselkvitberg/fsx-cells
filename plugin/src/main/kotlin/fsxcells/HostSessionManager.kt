@@ -64,10 +64,23 @@ class HostSessionManager(private val project: Project) : Disposable {
     }
 
     /** The running session for [scriptPath], starting (or replacing a dead) one if needed. */
-    private fun sessionFor(scriptPath: String): HostSession =
-        sessions.compute(scriptPath) { path, existing ->
-            if (existing != null && existing.isAlive) existing else HostSession(path)
-        }!!
+    private fun sessionFor(scriptPath: String): HostSession {
+        sessions[scriptPath]?.takeIf { it.isAlive }?.let { return it }
+        // Started outside the map: it runs `dotnet --version` and starts a process, and stop() on the UI thread must
+        // not wait for that.
+        val created = HostSession(scriptPath)
+        var winner = created
+        sessions.compute(scriptPath) { _, existing ->
+            if (existing != null && existing.isAlive) existing.also { winner = it } else created
+        }
+        if (winner !== created) {
+            created.dispose()
+        } else if (disposed && sessions.remove(scriptPath, created)) {
+            // The project closed while this one started: nobody would stop it.
+            created.dispose()
+        }
+        return winner
+    }
 
     /** True while a cell of [scriptPath] runs (or waits to run) in its session. */
     fun isBusy(scriptPath: String): Boolean = sessions[scriptPath]?.isBusy == true

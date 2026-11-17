@@ -191,3 +191,8 @@ These are set with F# Interactive's own settings, which also work in `dotnet fsi
 - Evaluations run on a dedicated thread with a 256 MB stack, so deep recursion works.
 - `Console.Out` and `Console.Error` are swapped for a writer that collects the output (and passes it on as
   `output` messages) during each evaluation.
+- `Console.In` is empty: stdin is the protocol channel, so `Console.ReadLine()` and `stdin.ReadToEnd()` in a cell
+  return `null` and `""` at once instead of reading (and swallowing) requests.
+- When stdin closes (the IDE is gone), evaluations still running or queued get 5 seconds to finish and be answered.
+  Then they are interrupted, and the process exits after 5 more seconds at the latest.
+- Text tables show line breaks in string values as a space, so a cell stays on one line. The HTML tables keep them.
