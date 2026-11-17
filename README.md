@@ -37,6 +37,14 @@ in Settings | Tools | FSX Cells.
 Cells run on the machine Rider runs on. Remote development (JetBrains Gateway) isn't supported.
 <!-- Plugin description end -->
 
+## Reporting bugs
+
+[Open an issue](https://github.com/akselkvitberg/fsx-cells/issues/new?template=bug_report.yml). When the plugin
+itself fails, Rider's error dialog (the red icon in the status bar) has a **Report on GitHub** button: it shows what the
+report will contain (the error, the plugin, Rider, OS and `dotnet --version` versions, and the F# host's last messages,
+with your home folder shown as `~`), lets you edit it, and opens the filled-in issue form in your browser. Nothing is
+posted until you submit the form.
+
 ## Layout
 
 - `host/`: F# console app that keeps an F# Interactive session alive and talks JSON lines over

@@ -125,6 +125,21 @@ object Dotnet {
             .map { File(it, "global.json") }
             .firstOrNull { it.isFile }
 
+    /** What `dotnet --version` prints in [dir], or why it failed (for bug reports). Starts a process. */
+    fun version(dotnet: File, dir: File, env: Map<String, String>): String {
+        val (exitCode, output) = try {
+            run(dotnet, dir, env, "--version")
+        } catch (e: Exception) {
+            return "can't run $dotnet: ${e.message}"
+        }
+        val text = output.trim()
+        return when (exitCode) {
+            null -> "no answer within 30 seconds"
+            0 -> text.lines().lastOrNull { it.isNotBlank() }?.trim().orEmpty()
+            else -> "failed (exit code $exitCode): " + text.lines().take(5).joinToString(" ")
+        }
+    }
+
     /** Exit code (null on timeout) and combined output of `dotnet <args>` in [dir]. */
     private fun run(dotnet: File, dir: File, env: Map<String, String>, vararg args: String): Pair<Int?, String> {
         val process = ProcessBuilder(listOf(dotnet.path) + args)
