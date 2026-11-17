@@ -1,5 +1,11 @@
 # fsx-cells
 
+[![JetBrains Marketplace version](https://img.shields.io/jetbrains/plugin/v/36218)](https://plugins.jetbrains.com/plugin/36218-fsx-cells)
+[![JetBrains Marketplace downloads](https://img.shields.io/jetbrains/plugin/d/36218)](https://plugins.jetbrains.com/plugin/36218-fsx-cells)
+
+Install it in Rider from Settings | Plugins | Marketplace (search for "FSX Cells"), or from its
+[JetBrains Marketplace page](https://plugins.jetbrains.com/plugin/36218-fsx-cells).
+
 <!-- Plugin description -->
 Run cells of plain F# script (`.fsx`) files in Rider, notebook-style, and see the result right under each cell.
 
@@ -56,7 +62,7 @@ cd plugin
 ./gradlew runIde             # a test Rider with the plugin, opening samples/
 ```
 
-Install the zip in your own Rider with Settings > Plugins > Install Plugin from Disk.
+To try a build of your own, install the zip in Rider with Settings > Plugins > ⚙ > Install Plugin from Disk.
 
 `host/smoke-test.sh` publishes the host and runs a few cells through it with the installed SDK's F# compiler, the way
 the plugin does (most of the host's unit tests run in-process with their own compiler).
@@ -158,17 +164,17 @@ top. Lines that use Polyglot-only APIs such as `display` or `Formatter` are list
 The `Build` workflow builds, tests and runs the JetBrains Plugin Verifier on every push. To make a release:
 
 1. Move the `Unreleased` notes in [CHANGELOG.md](CHANGELOG.md) under a version heading (or run
-   `./gradlew patchChangelog -Pversion=0.2.0` in `plugin/`) and commit.
+   `./gradlew patchChangelog -Pversion=0.7.0` in `plugin/`) and commit.
 2. Push a version tag:
 
    ```bash
-   git tag v0.2.0
-   git push origin v0.2.0
+   git tag v0.7.0
+   git push origin v0.7.0
    ```
 
 The workflow builds the plugin with that version, attaches the zip to a GitHub release and, when the
 `PUBLISH_TOKEN` secret is set, publishes it to the JetBrains Marketplace. A tag with a pre-release suffix
-(`v0.3.0-eap.1`) goes to the Marketplace's `eap` channel instead of the default one.
+(`v0.8.0-eap.1`) goes to the Marketplace's `eap` channel instead of the default one.
 
 The plugin page's description comes from the part of this README between the `Plugin description` comments, and
 its change notes from CHANGELOG.md.
@@ -180,8 +186,11 @@ Repository secrets used by the workflow:
 | `PUBLISH_TOKEN` | A JetBrains Marketplace token (marketplace profile > My Tokens). Without it, nothing is published. |
 | `CERTIFICATE_CHAIN`, `PRIVATE_KEY`, `PRIVATE_KEY_PASSWORD` | Optional: sign the plugin zip ([how](https://plugins.jetbrains.com/docs/intellij/plugin-signing.html)). The Marketplace signs plugins either way. |
 
-The first version has to be uploaded by hand at <https://plugins.jetbrains.com/plugin/add> (build it with
-`./gradlew buildPlugin -Pversion=0.6.0`); JetBrains reviews new plugins before they're listed.
+The plugin is listed at <https://plugins.jetbrains.com/plugin/36218-fsx-cells> (plugin ID
+`io.github.akselkvitberg.fsxcells`).
+
+`version` in `plugin/gradle.properties` is the next version to release: builds from `main` are labelled
+`<version>-dev.<run number>`, so set it to the next version after tagging a release.
 
 ## License
 
