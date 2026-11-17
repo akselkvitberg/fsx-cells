@@ -8,6 +8,17 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 
 - Warnings from the compiler are listed in the output block, not only underlined.
 - `FsxCells.slnx` at the repository root with the host projects.
+- Run Cells Below, and Restart Session and Run All, in the gutter menu and Tools > FSX Cells; Run cells below in
+  the cell toolbar.
+- Next Cell and Previous Cell, Ctrl+Alt+Page Down and Ctrl+Alt+Page Up in .fsx files.
+- Error positions `(line,col)` and stack frame lines of the script in the output are links to that place in the
+  script.
+
+### Changed
+
+- All open files are saved before a cell runs, so `#load`ed files that were edited but not saved run as shown.
+- An HTML output block (tables, `[html]`, `[image]`) only holds an embedded browser while it is near the visible
+  part of the editor, so a file with many such cells uses less memory.
 
 ### Fixed
 
