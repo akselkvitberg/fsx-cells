@@ -4,6 +4,11 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- An F# session that hasn't run a cell for 30 minutes is stopped to free its memory; the next cell starts a new one
+  and says so above its output. Set the time, or turn this off, in Settings | Tools | FSX Cells.
+
 ## [0.6.0] - 2026-11-16
 
 The first release on the JetBrains Marketplace. Versions up to 0.5.0 were GitHub releases only; this lists everything
