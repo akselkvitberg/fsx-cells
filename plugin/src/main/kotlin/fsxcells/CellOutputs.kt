@@ -3,8 +3,11 @@ package fsxcells
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
+import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.RangeMarker
 import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.editor.ex.util.EditorUtil
 import com.intellij.openapi.editor.impl.EditorEmbeddedComponentManager
 import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.HighlighterLayer
@@ -16,6 +19,7 @@ import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.testFramework.LightVirtualFile
 import com.intellij.ui.JBColor
 import java.awt.Color
@@ -79,7 +83,7 @@ class CellOutputs private constructor(private val editor: Editor) {
 
         // Add the new block before removing the old one. Removing first makes the document briefly shorter; when the
         // editor is scrolled to the end of the file it then scrolls up, and doesn't scroll back when the new block is added.
-        val block = OutputBlock(editorEx, output, ::openInTab, ::interrupt)
+        val block = OutputBlock(editorEx, output, ::openInTab, ::interrupt, { line, col -> goTo(line + lineShift, col) }, ::isScript)
         val inlay = EditorEmbeddedComponentManager.getInstance().addComponent(
             editorEx,
             block,
@@ -101,10 +105,12 @@ class CellOutputs private constructor(private val editor: Editor) {
         // The block (and its browser, for HTML output) goes away with the inlay.
         Disposer.register(inlay, block)
         block.inlay = inlay
+        watchViewport()
 
         val entry = existing?.also { it.inlay = inlay; it.block = block }
             ?: Entry(CellKey.of(document, cell), inlay, block).also { entries += it }
         if (result != null) addErrorHighlights(entry, result, lineShift)
+        updateViewport()
     }
 
     /**
@@ -129,6 +135,49 @@ class CellOutputs private constructor(private val editor: Editor) {
         }
         show(cell, output)
         return find(cell)?.block?.also { it.showLive(output) }
+    }
+
+    private fun isScript(path: String): Boolean {
+        val scriptPath = FileDocumentManager.getInstance().getFile(document)?.path ?: return false
+        return samePath(path, scriptPath)
+    }
+
+    /**
+     * Moves the caret to a script position and focuses the editor. Lines are those of the script when the cell ran;
+     * if cells were added or removed above since, the position may be off. It is clamped to the document.
+     */
+    private fun goTo(line: Int, column: Int) {
+        if (editor.isDisposed) return
+        val line0 = (line - 1).coerceIn(0, document.lineCount - 1)
+        val lineLength = document.getLineEndOffset(line0) - document.getLineStartOffset(line0)
+        val col0 = (column - 1).coerceIn(0, lineLength)
+        editor.caretModel.moveToLogicalPosition(LogicalPosition(line0, col0))
+        editor.scrollingModel.scrollToCaret(ScrollType.CENTER)
+        IdeFocusManager.getGlobalInstance().requestFocus(editor.contentComponent, true)
+    }
+
+    private var watching = false
+
+    /** HTML blocks hold a browser only near the visible area: follow scrolling and resizing of the editor. */
+    private fun watchViewport() {
+        if (watching) return
+        watching = true
+        val disposable = Disposer.newDisposable("fsxcells.cellOutputs")
+        EditorUtil.disposeWithEditor(editor, disposable)
+        editor.scrollingModel.addVisibleAreaListener({ updateViewport() }, disposable)
+    }
+
+    private fun updateViewport() {
+        if (editor.isDisposed) return
+        val visible = editor.scrollingModel.visibleArea
+        for (entry in entries.toList()) {
+            val block = entry.block
+            if (!block.isHtml || !entry.inlay.isValid) continue
+            val bounds = entry.inlay.bounds
+            val top = bounds?.y ?: (editor.offsetToXY(entry.inlay.offset).y + editor.lineHeight)
+            val height = bounds?.height ?: block.preferredSize.height
+            block.updateViewport(top, top + height, visible.y, visible.y + visible.height)
+        }
     }
 
     /** Stops the cell running in this file (the Stop link of a running block). */

@@ -14,8 +14,11 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
 import java.awt.datatransfer.StringSelection
 import javax.swing.JMenuItem
@@ -53,6 +56,10 @@ class OutputBlock(
     content: CellOutput,
     private val onOpenInTab: (CellOutput) -> Unit,
     private val onStop: (() -> Unit)? = null,
+    /** Called with a 1-based script line and column when an error position in the text is clicked. */
+    private val onGoTo: ((line: Int, column: Int) -> Unit)? = null,
+    /** Whether a path in a stack frame is the script itself; only those frames are clickable. */
+    private val isScriptPath: (String) -> Boolean = { false },
 ) : JPanel(BorderLayout()), Disposable {
 
     var content: CellOutput = content
@@ -114,14 +121,23 @@ class OutputBlock(
     private val scheme get() = editor.colorsScheme
     private val blockBackground: Color get() = blend(scheme.defaultBackground, scheme.defaultForeground, 0.05)
 
-    private val htmlView: HtmlView? =
-        content.html?.takeIf { HtmlSupport.isSupported }?.let { body ->
-            HtmlView(HtmlPage.page(body, htmlTheme()), ::onHtmlHeight, ::scrollEditor)
-                .also { Disposer.register(this, it) }
-        }
+    /** The HTML body when this block shows HTML (fixed for the block's lifetime). */
+    private val htmlBody: String? = content.html?.takeIf { HtmlSupport.isSupported }
+
+    /**
+     * The embedded browser. Only held while the block is near the visible area (see [updateViewport]); otherwise the
+     * block keeps its last height and shows an empty placeholder.
+     */
+    private var htmlView: HtmlView? = null
+    private var disposed = false
 
     /** Height of the HTML page's content as the browser reports it; a guess from the text until then. */
     private var htmlHeight: Int = -1
+
+    /** Error positions of the current content, as document offsets in the text pane. */
+    private class DocLink(val start: Int, val end: Int, val link: ErrorLink)
+    private var docLinks: List<DocLink> = emptyList()
+    private var hovered: DocLink? = null
 
     init {
         val font = scheme.getFont(EditorFontType.PLAIN)
@@ -146,18 +162,85 @@ class OutputBlock(
         footer.add(summaryLabel)
         footer.add(stopLink)
 
-        if (htmlView != null) add(htmlView.component, BorderLayout.CENTER)
-        else if (content.lines.isNotEmpty()) add(scrollPane, BorderLayout.CENTER)
+        textPane.addMouseMotionListener(object : MouseAdapter() {
+            override fun mouseMoved(e: MouseEvent) = setHovered(linkAt(e))
+        })
+        textPane.addMouseListener(object : MouseAdapter() {
+            override fun mouseExited(e: MouseEvent) = setHovered(null)
+            override fun mouseClicked(e: MouseEvent) {
+                if (!SwingUtilities.isLeftMouseButton(e) || e.clickCount != 1) return
+                if (!textPane.selectedText.isNullOrEmpty()) return
+                linkAt(e)?.let { onGoTo?.invoke(it.link.line, it.link.column) }
+            }
+        })
+
+        if (htmlBody == null && content.lines.isNotEmpty()) add(scrollPane, BorderLayout.CENTER)
         add(footer, BorderLayout.SOUTH)
         render()
     }
 
     override fun dispose() {
+        disposed = true
         clock.stop()
+        htmlView?.let { Disposer.dispose(it) }
+        htmlView = null
     }
 
     /** False for a block showing HTML: live output then needs a new block. */
-    val canShowLive: Boolean get() = htmlView == null
+    val canShowLive: Boolean get() = htmlBody == null
+
+    /** True when this block shows HTML (and so may hold an embedded browser). */
+    val isHtml: Boolean get() = htmlBody != null
+
+    /** True while the block holds a live browser. */
+    val hasBrowser: Boolean get() = htmlView != null
+
+    /**
+     * Creates or releases the embedded browser depending on where the block is relative to the visible area of the
+     * editor ([blockTop]..[blockBottom] and [visibleTop]..[visibleBottom] in the same pixel coordinates).
+     */
+    fun updateViewport(blockTop: Int, blockBottom: Int, visibleTop: Int, visibleBottom: Int) {
+        val body = htmlBody ?: return
+        if (disposed) return
+        val want = HtmlVisibility.shouldBeLive(htmlView != null, blockTop, blockBottom, visibleTop, visibleBottom)
+        val view = htmlView
+        if (want && view == null) {
+            val created = HtmlView(HtmlPage.page(body, htmlTheme()), ::onHtmlHeight, ::scrollEditor)
+            Disposer.register(this, created)
+            created.setDimmed(dimmed)
+            htmlView = created
+            add(created.component, BorderLayout.CENTER)
+            revalidate()
+            repaint()
+        } else if (!want && view != null) {
+            remove(view.component)
+            htmlView = null
+            Disposer.dispose(view)
+            revalidate()
+            repaint()
+        }
+    }
+
+    private fun linkAt(e: MouseEvent): DocLink? {
+        if (docLinks.isEmpty()) return null
+        val offset = textPane.viewToModel2D(e.point)
+        return docLinks.firstOrNull { offset >= it.start && offset < it.end }
+    }
+
+    private fun setHovered(link: DocLink?) {
+        if (link === hovered) return
+        val doc = textPane.styledDocument
+        hovered?.let { old ->
+            if (old.end <= doc.length) doc.setCharacterAttributes(old.start, old.end - old.start,
+                SimpleAttributeSet().also { StyleConstants.setUnderline(it, false) }, false)
+        }
+        hovered = link
+        if (link != null) {
+            doc.setCharacterAttributes(link.start, link.end - link.start,
+                SimpleAttributeSet().also { StyleConstants.setUnderline(it, true) }, false)
+        }
+        textPane.cursor = Cursor.getPredefinedCursor(if (link != null) Cursor.HAND_CURSOR else Cursor.TEXT_CURSOR)
+    }
 
     /**
      * Shows [output], written by the running cell so far, instead of the block's content, scrolled to its end.
@@ -224,10 +307,19 @@ class OutputBlock(
 
         val doc = textPane.styledDocument
         doc.remove(0, doc.length)
+        hovered = null
+        textPane.cursor = Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR)
+        val links = mutableListOf<DocLink>()
         content.lines.forEachIndexed { i, line ->
             val attrs = SimpleAttributeSet().also { StyleConstants.setForeground(it, color(line.kind)) }
-            doc.insertString(doc.length, if (i == 0) line.text else "\n" + line.text, attrs)
+            if (i > 0) doc.insertString(doc.length, "\n", attrs)
+            val lineStart = doc.length
+            doc.insertString(lineStart, line.text, attrs)
+            if ((line.kind == OutputLineKind.Error || line.kind == OutputLineKind.Dim) && onGoTo != null) {
+                ErrorLinks.find(line.text, isScriptPath).forEach { links += DocLink(lineStart + it.start, lineStart + it.end, it) }
+            }
         }
+        docLinks = links
         // Live output follows its end, like a terminal.
         textPane.caretPosition = if (live) doc.length else 0
         htmlView?.setDimmed(dimmed)
@@ -268,8 +360,9 @@ class OutputBlock(
         val summaryWidth = footer.preferredSize.width
         val maxWidth = (editor.scrollingModel.visibleArea.width - JBUI.scale(40)).coerceAtLeast(JBUI.scale(300))
 
-        if (htmlView != null) {
-            // Until the browser reports its height, guess from the text lines so the editor jumps less.
+        if (htmlBody != null) {
+            // Without a browser (released while far away) the last known height is kept. Until the browser first
+            // reports its height, guess from the text lines so the editor jumps less.
             val guess = minOf(content.lines.size, MAX_VISIBLE_LINES) * lineHeight + textInsets.top + textInsets.bottom
             val pageHeight = if (htmlHeight >= 0) htmlHeight else guess
             val height = minOf(pageHeight, MAX_HTML_LINES * lineHeight).coerceAtLeast(lineHeight)
