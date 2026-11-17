@@ -74,4 +74,21 @@ class HostSessionTest {
         assertFalse(result.ok)
         assertEquals("stopped for the test", result.error)
     }
+
+    @Test
+    fun `a host that exits answers waiting cells with its exit code`() {
+        val result = session.eval("printfn \"bye\"\nexit 3", 1).within(60)
+        assertFalse(result.ok)
+        assertTrue(result.error.orEmpty(), result.error.orEmpty().startsWith("The F# host process exited (code 3)."))
+        assertFalse(session.isAlive)
+        assertFalse(session.isBusy)
+    }
+
+    @Test
+    fun `non-ASCII text round-trips through the host`() {
+        val result = session.eval("printfn \"æøå 🙂\"\n\"æøå 🙂\"", 1).within(60)
+        assertTrue(result.error.orEmpty(), result.ok)
+        assertEquals("æøå 🙂\n", result.stdout)
+        assertEquals("æøå 🙂", result.valueText)
+    }
 }

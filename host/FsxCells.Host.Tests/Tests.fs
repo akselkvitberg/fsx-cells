@@ -618,6 +618,26 @@ type SessionTests() =
         Assert.False r.Interrupted
 
     [<Fact>]
+    member _.``non-ASCII text is kept in output and value``() =
+        let r = eval "printfn \"æøå 🙂\"\n\"æøå 🙂\"" 1
+        Assert.True(r.Ok, string r.Error)
+        Assert.Equal("æøå 🙂\n", r.Stdout)
+        Assert.Equal(Some "æøå 🙂", r.ValueText)
+
+    [<Fact>]
+    member _.``line breaks in output and value are normalised``() =
+        let r = eval "printf \"a\r\nb\"\n\"x\r\ny\"" 1
+        Assert.True(r.Ok, string r.Error)
+        Assert.Equal("a\nb", r.Stdout)
+        Assert.Equal(Some "x\ny", r.ValueText)
+
+    [<Fact>]
+    member _.``FSI's note about stopping is not in the output of a failed cell``() =
+        let r = eval "printfn \"before\"\nlet a: string = 1" 1
+        Assert.False r.Ok
+        Assert.DoesNotContain("Stopped due to error", r.Stdout)
+
+    [<Fact>]
     member this.``output is passed on while the cell runs``() =
         let chunks = Collections.Concurrent.ConcurrentQueue<string>()
         // The cell waits for this file, so the test controls how long it runs, however long compiling it takes.
@@ -638,6 +658,76 @@ type SessionTests() =
         let count = chunks.Count
         Threading.Thread.Sleep 300
         Assert.Equal(count, chunks.Count)
+
+module StreamingWriterTests =
+
+    open System.Threading
+
+    let waitUntil (cond: unit -> bool) =
+        let sw = Diagnostics.Stopwatch.StartNew()
+        while not (cond ()) && sw.ElapsedMilliseconds < 10_000L do Thread.Sleep 10
+        cond ()
+
+    [<Fact>]
+    let ``writes are passed on together at the interval`` () =
+        let chunks = Collections.Concurrent.ConcurrentQueue<string>()
+        // Long enough that all three writes come before the first tick.
+        let w = new StreamingWriter(Some chunks.Enqueue, 500)
+        w.Write "a"
+        w.Write "b"
+        w.Write "c"
+        Assert.True(waitUntil (fun () -> not chunks.IsEmpty))
+        w.Finish()
+        Assert.Equal("abc", String.Concat chunks)
+        Assert.Equal(1, chunks.Count)
+
+    [<Fact>]
+    let ``nothing is passed on without a write`` () =
+        let chunks = Collections.Concurrent.ConcurrentQueue<string>()
+        let w = new StreamingWriter(Some chunks.Enqueue, 20)
+        Thread.Sleep 200
+        w.Finish()
+        Assert.True chunks.IsEmpty
+
+    [<Fact>]
+    let ``output written after Finish is kept but not passed on`` () =
+        let chunks = Collections.Concurrent.ConcurrentQueue<string>()
+        // An interval too long to tick during the test: Finish comes with everything still pending.
+        let w = new StreamingWriter(Some chunks.Enqueue, 60_000)
+        w.Write "last"
+        w.Finish()
+        w.Write " late"
+        Thread.Sleep 100
+        Assert.True chunks.IsEmpty
+        Assert.Equal("last late", w.ToString())
+
+    [<Fact>]
+    let ``line breaks are normalised in chunks`` () =
+        let chunks = Collections.Concurrent.ConcurrentQueue<string>()
+        let w = new StreamingWriter(Some chunks.Enqueue, 20)
+        w.Write "a\r\nb\r\n"
+        Assert.True(waitUntil (fun () -> not chunks.IsEmpty))
+        w.Finish()
+        Assert.Equal("a\nb\n", String.Concat chunks)
+
+    [<Fact>]
+    let ``without a callback it only collects`` () =
+        let w = new StreamingWriter(None)
+        w.Write 'x'
+        w.Write "yz"
+        w.Write([| 'a'; 'b'; 'c' |], 1, 2)
+        w.Finish()
+        Assert.Equal("xyzbc", w.ToString())
+
+    [<Fact>]
+    let ``a throwing callback does not stop the writer`` () =
+        let calls = ref 0
+        let w = new StreamingWriter(Some(fun _ -> calls.Value <- calls.Value + 1; failwith "listener"), 20)
+        w.Write "a"
+        Assert.True(waitUntil (fun () -> calls.Value > 0))
+        w.Write "b"
+        w.Finish()
+        Assert.Equal("ab", w.ToString())
 
 module HostProcessTests =
 
@@ -709,6 +799,20 @@ module HostProcessTests =
         // The cell was asked for, so it is answered (as interrupted) when the host could get it stopped.
         let result = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
         Assert.True(result.GetProperty("interrupted").GetBoolean())
+
+    [<Fact>]
+    let ``non-ASCII text survives the process pipes`` () =
+        use p = startHost ()
+        // Raw (not u-escaped) non-ASCII characters in the request.
+        let code = "printfn \"æøå 🙂\"\n\"æøå 🙂\""
+        let options = Text.Json.JsonSerializerOptions(Encoder = Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping)
+        p.StandardInput.WriteLine(sprintf """{"type":"eval","id":1,"code":%s}""" (Text.Json.JsonSerializer.Serialize(code, options)))
+        p.StandardInput.Close()
+        let reply = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        p.WaitForExit()
+        Assert.True(reply.GetProperty("ok").GetBoolean(), p.StandardError.ReadToEnd())
+        Assert.Equal("æøå 🙂\n", reply.GetProperty("stdout").GetString())
+        Assert.Equal("æøå 🙂", reply.GetProperty("valueText").GetString())
 
 module SdkTests =
 
