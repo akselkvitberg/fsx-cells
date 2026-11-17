@@ -32,7 +32,8 @@ grid.Length
 - Each cell has a toolbar above it (Run cell, Run up to here, Add cell above) and a run icon in the gutter;
   right-click the icon for Run All Cells, Add Cell Below and more.
 - What a cell prints shows up while it runs.
-- Each file has its own F# session, stopped when you close the file; restart it from Tools > FSX Cells.
+- Each file has its own F# session, stopped when you close the file or after 30 minutes without running a cell (the
+  next cell starts a new one); restart it from Tools > FSX Cells.
 - Sequences of records, objects and unions are shown as tables; `fsi.AddPrinter`, `fsi.PrintLength` and
   `fsi.PrintDepth` tune the output. Cells marked `[image]` or `[html]` show images and HTML.
 
@@ -69,6 +70,15 @@ the plugin does (most of the host's unit tests run in-process with their own com
 
 CI builds and tests on Linux, Windows and macOS. A weekly workflow (`Newest .NET SDK`) runs the host tests and the
 smoke test against the newest .NET SDK, previews included, to catch an SDK whose F# compiler the host can't use.
+
+## F# sessions
+
+Each `.fsx` file runs its cells in its own F# session: a host process with the F# compiler loaded, which uses a fair
+amount of memory. A session is stopped when you close the file, when you restart it (Tools > FSX Cells > Restart F#
+Session), and when it hasn't run a cell for 30 minutes. The next cell then starts a new session, which doesn't have
+the values of earlier cells; after an idle stop, that cell's output says so. A session running a cell, or with cells
+waiting to run, is never stopped. Set the time in Settings | Tools | FSX Cells (0 keeps sessions until the file is
+closed).
 
 ## Finding dotnet
 

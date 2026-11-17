@@ -27,6 +27,7 @@ object HtmlPage {
             if (t.isEmpty()) return
             sb.append(if (cssClass == null) "<pre>" else "<pre class=\"$cssClass\">").append(escape(t)).append("</pre>")
         }
+        result.notice?.let { pre(it, "fc-notice") }
         pre(result.stdout)
         sb.append("<div class=\"fc-value\">").append(result.valueHtml).append("</div>")
         result.error?.let { pre(it, "fc-error") }
@@ -59,7 +60,7 @@ thead th { background: $header; font-weight: 600; position: sticky; top: 0; }
 .fc-props th { background: $header; font-weight: normal; }
 td.fc-num, td.fc-index { text-align: right; }
 td.fc-index { color: $muted; }
-.fc-null, .fc-more { color: $muted; }
+.fc-null, .fc-more, .fc-notice { color: $muted; }
 .fc-more { margin: 1px 0 2px 0; }
 details > summary { cursor: pointer; color: $muted; }
 details[open] > summary { margin-bottom: 1px; }
