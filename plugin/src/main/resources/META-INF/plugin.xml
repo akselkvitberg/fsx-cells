@@ -31,8 +31,22 @@
             </action>
             <action id="FsxCells.RunCellsUpToHere" class="fsxcells.RunCellsUpToHereAction"
                     text="Run Cells Up to Here" description="Run all cells from the top of the file to the one under the caret"/>
+            <action id="FsxCells.RunCellsBelow" class="fsxcells.RunCellsBelowAction"
+                    text="Run Cells Below"
+                    description="Run the cell under the caret and all cells after it, stopping at the first failure"/>
             <action id="FsxCells.RunAllCells" class="fsxcells.RunAllCellsAction"
                     text="Run All Cells" description="Run every cell in the file, stopping at the first failure"/>
+            <action id="FsxCells.RestartAndRunAll" class="fsxcells.RestartAndRunAllAction"
+                    text="Restart Session and Run All"
+                    description="Restart this file's F# session, clear its output and run every cell"/>
+            <action id="FsxCells.NextCell" class="fsxcells.NextCellAction"
+                    text="Next Cell" description="Move the caret to the next cell">
+                <keyboard-shortcut keymap="$default" first-keystroke="control alt PAGE_DOWN"/>
+            </action>
+            <action id="FsxCells.PreviousCell" class="fsxcells.PreviousCellAction"
+                    text="Previous Cell" description="Move the caret to the previous cell">
+                <keyboard-shortcut keymap="$default" first-keystroke="control alt PAGE_UP"/>
+            </action>
             <action id="FsxCells.InterruptCell" class="fsxcells.InterruptCellAction"
                     text="Interrupt Cell" icon="AllIcons.Actions.Suspend"
                     description="Stop the running cell and the ones waiting to run; the session keeps its values">

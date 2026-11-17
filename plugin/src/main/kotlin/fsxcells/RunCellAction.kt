@@ -61,6 +61,9 @@ object CellRunner {
     fun run(project: Project, editor: Editor, file: VirtualFile, cell: Cell): CompletableFuture<Boolean> {
         val done = CompletableFuture<Boolean>()
         if (cell.isEmpty) return done.also { it.complete(true) }
+        // Always on the UI thread (actions, toolbar links and chained runs). The host reads #load-ed files from disk,
+        // so unsaved edits in them would be ignored. Saved before the code is read, in case saving reformats.
+        FileDocumentManager.getInstance().saveAllDocuments()
         val document = editor.document
         val codeStart = document.getLineStartOffset(cell.firstLine)
         val code = document.charsSequence.subSequence(codeStart, document.getLineEndOffset(cell.lastLine)).toString()
@@ -154,6 +157,15 @@ class RunCellsUpToHereAction : FsxAction() {
     }
 }
 
+/** Run the cell under the caret and every cell after it, stopping at the first failure. */
+class RunCellsBelowAction : FsxAction() {
+    override fun perform(project: Project, editor: Editor, file: VirtualFile) {
+        val cells = CellParser.parse(editor.document.charsSequence)
+        val from = CellNavigation.runBelowStart(cells, editor.caretModel.logicalPosition.line)
+        CellRunner.runFirst(project, editor, file, cells.size, from)
+    }
+}
+
 /**
  * Shift+Enter: run the cell under the caret, then move the caret into the next cell. On the last cell, add an empty
  * cell below instead.
@@ -170,10 +182,33 @@ class RunCellAndAdvanceAction : FsxAction() {
         if (next == null) {
             CellCommands(project, editor, file).addCellBelow(cell)
         } else {
-            val line = next.firstLine.coerceAtMost(document.lineCount - 1)
-            editor.caretModel.moveToOffset(document.getLineStartOffset(line))
-            editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+            moveCaretToLine(editor, next.firstLine)
         }
+    }
+}
+
+private fun moveCaretToLine(editor: Editor, line: Int) {
+    val document = editor.document
+    val target = line.coerceAtMost(document.lineCount - 1)
+    editor.caretModel.moveToOffset(document.getLineStartOffset(target))
+    editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+}
+
+/** Move the caret to the first line of the next cell. */
+class NextCellAction : FsxAction() {
+    override fun perform(project: Project, editor: Editor, file: VirtualFile) {
+        val cells = CellParser.parse(editor.document.charsSequence)
+        CellNavigation.neighbourLine(cells, editor.caretModel.logicalPosition.line, true, editor.document.lineCount)
+            ?.let { moveCaretToLine(editor, it) }
+    }
+}
+
+/** Move the caret to the first line of the previous cell. */
+class PreviousCellAction : FsxAction() {
+    override fun perform(project: Project, editor: Editor, file: VirtualFile) {
+        val cells = CellParser.parse(editor.document.charsSequence)
+        CellNavigation.neighbourLine(cells, editor.caretModel.logicalPosition.line, false, editor.document.lineCount)
+            ?.let { moveCaretToLine(editor, it) }
     }
 }
 
@@ -215,6 +250,14 @@ class RestartSessionAction : FsxAction() {
     override fun perform(project: Project, editor: Editor, file: VirtualFile) {
         HostSessionManager.getInstance(project).stop(file.path)
         CellOutputs.of(editor).clearAll()
+    }
+}
+
+/** Restart this file's F# session, clear its output, then run every cell from the top. */
+class RestartAndRunAllAction : FsxAction() {
+    override fun perform(project: Project, editor: Editor, file: VirtualFile) {
+        // stop() removes the old session before returning; evaluations are queued after this point and start a new one.
+        CellCommands(project, editor, file).restartAndRunAll()
     }
 }
 
