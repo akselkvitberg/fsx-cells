@@ -39,6 +39,8 @@ data class EvalResult(
     val valueHtml: String? = null,
     /** True when the cell was stopped by [HostSession.interrupt]. */
     val interrupted: Boolean = false,
+    /** A note from the plugin shown above the output, e.g. that the cell ran in a new session. */
+    val notice: String? = null,
 )
 
 /** One `FsxCells.Host` process, bound to one .fsx file. */
@@ -72,6 +74,10 @@ class HostSession private constructor(private val scriptPath: String, launch: ()
      * never blocks on a full pipe.
      */
     private val outbox = LinkedBlockingQueue<Pair<Int?, String>>()
+
+    /** [System.nanoTime] of the last eval sent or answered, for [idleNanos]. */
+    @Volatile
+    private var lastActive = System.nanoTime()
 
     /** The host's last stderr lines, shown when it exits unexpectedly (an unhandled exception's message and stack). */
     private val stderrTail = ArrayDeque<String>()
@@ -132,6 +138,7 @@ class HostSession private constructor(private val scriptPath: String, launch: ()
         val future = CompletableFuture<EvalResult>()
         if (onOutput != null) outputListeners[id] = onOutput
         pending[id] = future
+        lastActive = System.nanoTime()
         send(id, JsonObject().apply {
             addProperty("type", "eval")
             addProperty("id", id)
@@ -157,6 +164,17 @@ class HostSession private constructor(private val scriptPath: String, launch: ()
 
     /** True while an evaluation has no answer yet. */
     val isBusy: Boolean get() = pending.isNotEmpty()
+
+    /**
+     * How long the session has been unused at [now] (a [System.nanoTime] value): the time since the last cell was
+     * sent or answered. 0 while a cell runs or waits to run.
+     */
+    fun idleNanos(now: Long = System.nanoTime()): Long {
+        // isBusy first: an answer updates lastActive before it leaves [pending], so once nothing is pending,
+        // lastActive is at least as new as the last answer.
+        if (isBusy) return 0
+        return (now - lastActive).coerceAtLeast(0)
+    }
 
     /** Stops the host; evaluations still waiting get [message] as their error. */
     fun dispose(message: String = "The F# session was stopped.") {
@@ -202,6 +220,8 @@ class HostSession private constructor(private val scriptPath: String, launch: ()
                     return@forEachLine
                 }
                 outputListeners.remove(id)
+                // Before the eval leaves [pending], so the session never looks idle since an earlier eval.
+                lastActive = System.nanoTime()
                 val future = pending.remove(id) ?: return@forEachLine
                 future.complete(
                     EvalResult(

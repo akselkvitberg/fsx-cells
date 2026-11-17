@@ -4,10 +4,12 @@ import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.AppExecutorUtil
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 /** Keeps one [HostSession] per .fsx file in the project, so each file has its own F# state. */
@@ -23,6 +25,18 @@ class HostSessionManager(private val project: Project) : Disposable {
 
     @Volatile
     private var disposed = false
+
+    /**
+     * Files whose session was stopped for being idle, with the idle time in minutes, so the next cell can say it ran
+     * in a new session.
+     */
+    private val stoppedIdle = ConcurrentHashMap<String, Int>()
+
+    /** Checks for idle sessions every minute (see [stopIdleSessions]). */
+    private val idleCheck: ScheduledFuture<*> = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
+        { if (!disposed) starter.execute { stopIdleSessions(FsxCellsSettings.getInstance().idleTimeoutMinutes) } },
+        IDLE_CHECK_SECONDS, IDLE_CHECK_SECONDS, TimeUnit.SECONDS,
+    )
 
     /** The setup problem last shown as a notification, so running cell after cell doesn't repeat it. */
     @Volatile
@@ -45,8 +59,10 @@ class HostSessionManager(private val project: Project) : Disposable {
                 check(!disposed) { "The project is closed." }
                 // Running a cell runs the script's code: not in a project the user hasn't trusted.
                 if (!TrustedProjects.isProjectTrusted(project)) throw UntrustedProjectException()
-                sessionFor(scriptPath).eval(code, startLine, display, onOutput).whenComplete { r, e ->
-                    if (e != null) result.completeExceptionally(e) else result.complete(r)
+                val (session, notice) = sessionFor(scriptPath)
+                session.eval(code, startLine, display, onOutput).whenComplete { r, e ->
+                    if (e != null) result.completeExceptionally(e)
+                    else result.complete(if (notice != null) r.copy(notice = notice) else r)
                 }
             } catch (e: Throwable) {
                 result.completeExceptionally(e)
@@ -63,11 +79,36 @@ class HostSessionManager(private val project: Project) : Disposable {
         }
     }
 
-    /** The running session for [scriptPath], starting (or replacing a dead) one if needed. */
-    private fun sessionFor(scriptPath: String): HostSession =
-        sessions.compute(scriptPath) { path, existing ->
-            if (existing != null && existing.isAlive) existing else HostSession(path)
+    /**
+     * The running session for [scriptPath], starting (or replacing a dead) one if needed, and a notice for the cell
+     * when the new session replaces one that was stopped for being idle.
+     */
+    private fun sessionFor(scriptPath: String): Pair<HostSession, String?> {
+        var started = false
+        val session = sessions.compute(scriptPath) { path, existing ->
+            if (existing != null && existing.isAlive) existing else HostSession(path).also { started = true }
         }!!
+        val idleMinutes = if (started) stoppedIdle.remove(scriptPath) else null
+        return session to idleMinutes?.let(::idleRestartNotice)
+    }
+
+    /**
+     * Stops the sessions that haven't run a cell for [timeoutMinutes] (0: never), to free their memory. A session
+     * running a cell, or with cells waiting to run, is never stopped. Runs in [starter]'s queue, so no cell is
+     * being sent to a session meanwhile.
+     */
+    private fun stopIdleSessions(timeoutMinutes: Int) {
+        if (disposed) return
+        val now = System.nanoTime()
+        for ((path, session) in sessions) {
+            if (!isIdleTooLong(session.idleNanos(now), timeoutMinutes)) continue
+            if (sessions.remove(path, session)) {
+                log.info("Stopping the F# session of $path: unused for $timeoutMinutes minutes")
+                stoppedIdle[path] = timeoutMinutes
+                session.dispose()
+            }
+        }
+    }
 
     /** True while a cell of [scriptPath] runs (or waits to run) in its session. */
     fun isBusy(scriptPath: String): Boolean = sessions[scriptPath]?.isBusy == true
@@ -89,11 +130,13 @@ class HostSessionManager(private val project: Project) : Disposable {
 
     /** Stops the file's session (its state is lost); the next run starts a new one. */
     fun stop(scriptPath: String) {
+        stoppedIdle.remove(scriptPath)
         sessions.remove(scriptPath)?.dispose()
     }
 
     override fun dispose() {
         disposed = true
+        idleCheck.cancel(false)
         // A session being started now is stopped too: dispose() runs after the starter task, in its queue.
         starter.execute { stopAll() }
         stopAll()
@@ -107,6 +150,21 @@ class HostSessionManager(private val project: Project) : Disposable {
     companion object {
         /** How long an interrupted cell may take to stop before its session is restarted. */
         private const val STUCK_SECONDS = 5L
+
+        /** How often sessions are checked for being idle. */
+        private const val IDLE_CHECK_SECONDS = 60L
+
+        private val log = logger<HostSessionManager>()
+
+        /** True if a session unused for [idleNanos] should be stopped, with a timeout of [timeoutMinutes] (0: never). */
+        fun isIdleTooLong(idleNanos: Long, timeoutMinutes: Int): Boolean =
+            timeoutMinutes > 0 && idleNanos >= TimeUnit.MINUTES.toNanos(timeoutMinutes.toLong())
+
+        /** Shown above the output of the first cell run in a session that replaces one stopped for being idle. */
+        fun idleRestartNotice(minutes: Int): String =
+            "New F# session: the previous one was stopped after $minutes minute${if (minutes == 1) "" else "s"} " +
+                "without use, so values from earlier cells are gone.\n" +
+                "(Change when unused sessions are stopped in Settings | Tools | FSX Cells.)"
 
         fun getInstance(project: Project): HostSessionManager = project.service()
     }
