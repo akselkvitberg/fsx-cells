@@ -8,6 +8,9 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 
 - An F# session that hasn't run a cell for 30 minutes is stopped to free its memory; the next cell starts a new one
   and says so above its output. Set the time, or turn this off, in Settings | Tools | FSX Cells.
+- Errors in the plugin can be reported from Rider's error dialog (Report on GitHub): it shows the report, with the
+  plugin, Rider, OS and .NET SDK versions and the F# host's last messages, then opens a pre-filled GitHub issue in
+  the browser. Nothing is posted until you submit it there.
 
 ## [0.6.0] - 2026-11-16
 

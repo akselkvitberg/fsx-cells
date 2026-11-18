@@ -53,5 +53,7 @@
         <applicationConfigurable parentId="tools" instance="fsxcells.FsxCellsConfigurable"
                                  id="fsxcells.settings" displayName="FSX Cells"/>
         <notificationGroup id="FSX Cells" displayType="BALLOON"/>
+        <!-- Errors thrown by this plugin offer to open a pre-filled GitHub issue. -->
+        <errorHandler implementation="fsxcells.FsxErrorReportSubmitter"/>
     </extensions>
 </idea-plugin>

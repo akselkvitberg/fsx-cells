@@ -98,6 +98,7 @@ class HostSession private constructor(private val scriptPath: String, launch: ()
             BufferedReader(InputStreamReader(process.errorStream, StandardCharsets.UTF_8))
                 .forEachLine { line ->
                     log.info("host: $line")
+                    RecentHostStderr.add(line)
                     synchronized(stderrTail) {
                         stderrTail.addLast(line)
                         while (stderrTail.size > STDERR_TAIL_LINES) stderrTail.removeFirst()
