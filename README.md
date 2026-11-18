@@ -26,11 +26,16 @@ grid.Length
   - Shift+Enter (⇧↩): run it and move to the next cell (on the last cell, add a new one).
   - Ctrl+Shift+Enter (⌘⇧↩): run it and add a new cell below.
   - Ctrl+F2 (⌘F2): interrupt the running cell (also the Stop link under it). The session keeps its values.
+  - Ctrl+Alt+Page Down / Page Up (⌃⌥Page Down / Page Up): move the caret to the next / previous cell.
 
-  In .fsx files these take the place of Split Line, Start New Line and Complete Statement. To use other keys, search
-  for "FSX Cells" in Settings | Keymap. Send to F# Interactive (Ctrl+\\) still works as before.
-- Each cell has a toolbar above it (Run cell, Run up to here, Add cell above) and a run icon in the gutter;
-  right-click the icon for Run All Cells, Add Cell Below and more.
+  In .fsx files the Enter shortcuts take the place of Split Line, Start New Line and Complete Statement. To use other
+  keys, search for "FSX Cells" in Settings | Keymap. Send to F# Interactive (Ctrl+\\) still works as before.
+- Other actions, in Tools > FSX Cells (no default keys): Run Cells Up to Here, Run Cells Below (the cell under the
+  caret and all after it), Run All Cells, Restart F# Session, Restart Session and Run All, Open Cell Output in Tab and
+  Clear Cell Outputs. Runs stop at the first cell that fails.
+- Files are saved before cells run, because `#load`ed files are read from disk.
+- Each cell has a toolbar above it (Run cell, Run up to here, Run cells below, Add cell above) and a run icon in the
+  gutter; right-click the icon for Run All Cells, Restart Session and Run All, Add Cell Below and more.
 - What a cell prints shows up while it runs.
 - Each file has its own F# session, stopped when you close the file or after 30 minutes without running a cell (the
   next cell starts a new one); restart it from Tools > FSX Cells.

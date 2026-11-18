@@ -119,6 +119,7 @@ class CellDecorations(
         val bar = CellToolbar(editor, listOf(
             CellToolbar.Item("Run cell", CellIcons.RunCell, "Run this cell (Ctrl+Enter)") { cell()?.let(commands::run) },
             CellToolbar.Item("Run up to here", null, "Run all cells from the top to this one") { cell()?.let(commands::runUpTo) },
+            CellToolbar.Item("Run cells below", null, "Run this cell and all cells after it") { cell()?.let(commands::runFrom) },
             CellToolbar.Item("Add cell above", AllIcons.General.Add, "Insert an empty cell above this one") { cell()?.let(commands::addCellAbove) },
         ))
         inlay = EditorEmbeddedComponentManager.getInstance().addComponent(
@@ -170,7 +171,9 @@ class CellDecorations(
         override fun getPopupMenuActions(): ActionGroup = DefaultActionGroup(
             action("Run Cell", CellIcons.RunCell) { cell()?.let(commands::run) },
             action("Run Cells Up to Here") { cell()?.let(commands::runUpTo) },
+            action("Run Cells Below") { cell()?.let(commands::runFrom) },
             action("Run All Cells") { commands.runAll() },
+            action("Restart Session and Run All") { commands.restartAndRunAll() },
             Separator.getInstance(),
             action("Add Cell Above", AllIcons.General.Add) { cell()?.let(commands::addCellAbove) },
             action("Add Cell Below", AllIcons.General.Add) { commands.addCellBelow(cell()) },

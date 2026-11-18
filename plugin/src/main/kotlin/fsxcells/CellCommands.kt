@@ -29,8 +29,22 @@ class CellCommands(private val project: Project, private val editor: Editor, pri
         if (index >= 0) CellRunner.runFirst(project, editor, file, index + 1)
     }
 
+    /** [cell] and every cell after it, one after another, stopping at the first failure. */
+    fun runFrom(cell: Cell) {
+        val all = cells()
+        val index = all.indexOfFirst { it.markerLine == cell.markerLine }
+        if (index >= 0) CellRunner.runFirst(project, editor, file, all.size, index)
+    }
+
     fun runAll() {
         CellRunner.runFirst(project, editor, file, cells().size)
+    }
+
+    /** Stops the file's session, clears its output, then runs every cell. */
+    fun restartAndRunAll() {
+        HostSessionManager.getInstance(project).stop(file.path)
+        CellOutputs.of(editor).clearAll()
+        runAll()
     }
 
     /** Inserts a new empty cell before [cell] and puts the caret in it. */
