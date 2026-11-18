@@ -756,14 +756,24 @@ module HostProcessTests =
         p.StandardInput.WriteLine(sprintf """{"type":"init","scriptPath":%s}""" (Text.Json.JsonSerializer.Serialize scriptPath))
         p
 
+    /// The host's next `result` message. A cell's printed text can also come as `output` messages while it runs (at
+    /// most every 100 ms, so only on a slow machine for these quick cells); they are skipped.
+    let readResult (p: Process) =
+        let rec next () =
+            let line = p.StandardOutput.ReadLine()
+            if isNull line then failwithf "the host exited without a result: %s" (p.StandardError.ReadToEnd())
+            let message = Text.Json.JsonDocument.Parse(line).RootElement
+            if message.GetProperty("type").GetString() = "output" then next () else message
+        next ()
+
     [<Fact>]
     let ``the host process loads F# from the installed SDK and runs cells`` () =
         use p = startHost ()
         p.StandardInput.WriteLine("""{"type":"eval","id":1,"code":"typeof<int list>.Assembly.Location"}""")
         p.StandardInput.WriteLine("""{"type":"eval","id":2,"code":"fsi.AddPrinter(fun (x: int) -> \"I\" + string x)\n[ {| N = 1 |} ]"}""")
         p.StandardInput.Close()
-        let fsharpCore = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
-        let table = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        let fsharpCore = readResult p
+        let table = readResult p
         p.WaitForExit()
         Assert.True(fsharpCore.GetProperty("ok").GetBoolean(), p.StandardError.ReadToEnd())
         // .../sdk/<version>/FSharp/FSharp.Core.dll
@@ -777,11 +787,11 @@ module HostProcessTests =
     let ``a cell reading stdin gets no input and does not swallow the next request`` () =
         use p = startHost ()
         p.StandardInput.WriteLine("""{"type":"eval","id":1,"code":"printf \"%A\" (stdin.ReadLine())"}""")
-        let first = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        let first = readResult p
         Assert.True(first.GetProperty("ok").GetBoolean(), string first)
         Assert.Equal("<null>", first.GetProperty("stdout").GetString())
         p.StandardInput.WriteLine("""{"type":"eval","id":2,"code":"1 + 1"}""")
-        let second = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        let second = readResult p
         Assert.Equal("2", second.GetProperty("valueText").GetString())
         p.StandardInput.Close()
         Assert.True(p.WaitForExit 30_000, "the host did not exit")
@@ -797,7 +807,7 @@ module HostProcessTests =
         if not exited then p.Kill true
         Assert.True(exited, "the host kept running after stdin closed")
         // The cell was asked for, so it is answered (as interrupted) when the host could get it stopped.
-        let result = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        let result = readResult p
         Assert.True(result.GetProperty("interrupted").GetBoolean())
 
     [<Fact>]
