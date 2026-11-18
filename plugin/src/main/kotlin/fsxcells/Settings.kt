@@ -18,6 +18,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.dsl.builder.AlignX
+import com.intellij.ui.dsl.builder.RightGap
+import com.intellij.ui.dsl.builder.bindIntValue
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.panel
 
@@ -27,6 +29,7 @@ import com.intellij.ui.dsl.builder.panel
 class FsxCellsSettings : SimplePersistentStateComponent<FsxCellsSettings.SettingsState>(SettingsState()) {
     class SettingsState : BaseState() {
         var dotnetPath by string()
+        var idleTimeoutMinutes by property(DEFAULT_IDLE_TIMEOUT_MINUTES)
     }
 
     /** The dotnet executable to use; empty to find it automatically. */
@@ -36,7 +39,17 @@ class FsxCellsSettings : SimplePersistentStateComponent<FsxCellsSettings.Setting
             state.dotnetPath = value.trim().ifEmpty { null }
         }
 
+    /** Minutes a file's F# session may go unused before it is stopped to free its memory; 0 to never stop it. */
+    var idleTimeoutMinutes: Int
+        get() = state.idleTimeoutMinutes.coerceIn(0, MAX_IDLE_TIMEOUT_MINUTES)
+        set(value) {
+            state.idleTimeoutMinutes = value.coerceIn(0, MAX_IDLE_TIMEOUT_MINUTES)
+        }
+
     companion object {
+        const val DEFAULT_IDLE_TIMEOUT_MINUTES = 30
+        const val MAX_IDLE_TIMEOUT_MINUTES = 24 * 60
+
         fun getInstance(): FsxCellsSettings = service()
     }
 }
@@ -58,6 +71,16 @@ class FsxCellsConfigurable : BoundConfigurable("FSX Cells") {
                         "Applies to F# sessions started after the change (Tools | FSX Cells | Restart F# Session).",
                 )
         }
+        row("Stop unused F# sessions after:") {
+            spinner(0..FsxCellsSettings.MAX_IDLE_TIMEOUT_MINUTES, 5)
+                .bindIntValue(settings::idleTimeoutMinutes)
+                .gap(RightGap.SMALL)
+            label("minutes")
+        }.rowComment(
+            "Each open .fsx file keeps an F# session, with the F# compiler, in memory. A session that hasn't run a " +
+                "cell for this long is stopped; the next cell starts a new one, without the values of earlier cells. " +
+                "A session running a cell is never stopped. 0: never stop sessions.",
+        )
     }
 }
 

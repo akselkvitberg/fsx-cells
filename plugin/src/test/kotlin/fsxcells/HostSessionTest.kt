@@ -91,4 +91,15 @@ class HostSessionTest {
         assertEquals("æøå 🙂\n", result.stdout)
         assertEquals("æøå 🙂", result.valueText)
     }
+
+    @Test
+    fun `a session is not idle while a cell runs, and is idle from when the cell is done`() {
+        val running = session.eval("System.Threading.Thread.Sleep 2_000\n1", 1)
+        assertEquals(0L, session.idleNanos(System.nanoTime() + TimeUnit.HOURS.toNanos(1)))
+        assertEquals("1", running.within(60).valueText)
+        // The answer arrived before now, so the session has been idle a little longer than 45 minutes then.
+        val later = System.nanoTime() + TimeUnit.MINUTES.toNanos(45)
+        val idle = session.idleNanos(later)
+        assertTrue("idle for ${TimeUnit.NANOSECONDS.toMinutes(idle)} min", idle in TimeUnit.MINUTES.toNanos(45)..TimeUnit.MINUTES.toNanos(46))
+    }
 }

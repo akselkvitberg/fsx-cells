@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in FSX Cells doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. When the plugin itself fails, Rider's error dialog (the red icon in the status
+        bar) has a **Report on GitHub** button that opens this form with the versions and the error filled in.
+
+        Check the text below before submitting: an issue is public. Remove paths, code or output you don't want to share.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. A small `.fsx` that shows it helps a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: The FSX Cells version (Settings | Plugins), the Rider version (Help | About), your OS, and what `dotnet --version` prints in the script's folder.
+      placeholder: |
+        FSX Cells: 0.7.0
+        IDE: JetBrains Rider 2026.2.3
+        OS: Windows 11
+        dotnet --version: 10.0.100
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error
+      description: The error message and stack trace, if there is one (from the cell output or Rider's error dialog).
+      render: text
+  - type: textarea
+    id: host-stderr
+    attributes:
+      label: The F# host's last messages
+      description: Lines starting with `host:` in Rider's log (Help | Show Log in Explorer/Finder), if any.
+      render: text
