@@ -818,7 +818,7 @@ module HostProcessTests =
         let options = Text.Json.JsonSerializerOptions(Encoder = Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping)
         p.StandardInput.WriteLine(sprintf """{"type":"eval","id":1,"code":%s}""" (Text.Json.JsonSerializer.Serialize(code, options)))
         p.StandardInput.Close()
-        let reply = Text.Json.JsonDocument.Parse(p.StandardOutput.ReadLine()).RootElement
+        let reply = readResult p
         p.WaitForExit()
         Assert.True(reply.GetProperty("ok").GetBoolean(), p.StandardError.ReadToEnd())
         Assert.Equal("æøå 🙂\n", reply.GetProperty("stdout").GetString())
