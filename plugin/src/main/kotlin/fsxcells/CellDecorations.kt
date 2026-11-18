@@ -9,6 +9,7 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
@@ -69,6 +70,7 @@ class CellDecorations(
     fun refresh() {
         if (editor.isDisposed) return
         val cells = CellParser.parse(document.charsSequence)
+        CellOutputs.of(editor).realign(cells)
 
         highlighters.forEach { editor.markupModel.removeHighlighter(it) }
         highlighters.clear()
@@ -196,6 +198,8 @@ class CellDecorations(
 class FsxEditorListener : EditorFactoryListener {
     override fun editorCreated(event: EditorFactoryEvent) {
         val editor = event.editor
+        // Not diff, preview or console editors of the file: running cells there would run the real session.
+        if (editor.editorKind != EditorKind.MAIN_EDITOR) return
         val project = editor.project ?: return
         val file = FileDocumentManager.getInstance().getFile(editor.document) ?: return
         if (!file.extension.equals("fsx", ignoreCase = true)) return

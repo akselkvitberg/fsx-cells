@@ -17,6 +17,8 @@ let private run () =
     let stderr = new StreamWriter(Console.OpenStandardError(), utf8, AutoFlush = true)
     Console.SetOut stderr
     Console.SetError stderr
+    // Stdin is the protocol channel: a cell reading it would swallow requests, so it sees an empty input instead.
+    Console.SetIn TextReader.Null
 
     // Called from the reader thread, the evaluation thread (output) and result continuations.
     let sendGate = obj ()
@@ -35,7 +37,9 @@ let private run () =
             reraise ()
 
     // Requests are read while a cell runs, so `interrupt` takes effect at once; evaluations queue up and run in order.
-    let results = Collections.Generic.List<Threading.Tasks.Task>()
+    // Only the evaluations still pending are kept (results can be large); each removes itself when it is answered.
+    let pending = Collections.Generic.HashSet<Threading.Tasks.Task>()
+    let pendingSnapshot () = lock pending (fun () -> Seq.toArray pending)
     let rec loop () =
         match protocolIn.ReadLine() with
         | null -> ()
@@ -48,18 +52,35 @@ let private run () =
                 | Eval(id, code, startLine, display) ->
                     let evaluation =
                         session.StartEval(code, startLine, ?display = display, onOutput = (fun text -> send (serializeOutput id text)))
-                    results.Add(
-                        evaluation.ContinueWith(fun (t: Threading.Tasks.Task<EvalResult>) ->
-                            if t.IsCompletedSuccessfully then send (serializeEvalResponse id t.Result)
-                            else send (serializeProtocolError (Some id) (t.Exception.GetBaseException().Message))))
+                    // Lock while registering, so the continuation can't remove the task before it is added.
+                    lock pending (fun () ->
+                        let answered: Threading.Tasks.Task ref = ref null
+                        answered.Value <-
+                            evaluation.ContinueWith(fun (t: Threading.Tasks.Task<EvalResult>) ->
+                                try
+                                    if t.IsCompletedSuccessfully then send (serializeEvalResponse id t.Result)
+                                    else send (serializeProtocolError (Some id) (t.Exception.GetBaseException().Message))
+                                finally
+                                    lock pending (fun () -> pending.Remove answered.Value |> ignore))
+                        pending.Add answered.Value |> ignore)
             with e ->
                 send (serializeProtocolError (tryReadId line) e.Message)
             loop ()
 
     loop ()
-    // stdin closed: answer what was asked before exiting.
-    Threading.Tasks.Task.WaitAll(results.ToArray())
-    0
+    // stdin closed: answer what was asked before exiting. The IDE may be gone, so a cell that never ends can't
+    // keep the process alive: after a grace period it is interrupted, and after another one the process exits anyway.
+    let finished (seconds: int) = Threading.Tasks.Task.WaitAll(pendingSnapshot (), TimeSpan.FromSeconds(float seconds))
+    if finished 5 then
+        0
+    else
+        session.Interrupt()
+        if finished 5 then
+            0
+        else
+            // Still stuck (e.g. a native call). Skip the dispose, which could wait for the evaluation too.
+            Environment.Exit 0
+            0
 
 [<EntryPoint>]
 let main _ =

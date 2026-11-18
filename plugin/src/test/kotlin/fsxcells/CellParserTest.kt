@@ -138,4 +138,41 @@ class CellParserTest {
         assertEquals("Plot [image]", CellParser.markerTitle("// %% Plot [image]"))
         assertEquals("[html]", CellParser.markerTitle("(* cell [html] *)"))
     }
+
+    private val q = "\"\"\""
+    private fun markerLines(vararg lines: String) = CellParser.parse(lines.toList()).map { it.markerLine }
+
+    @Test
+    fun `markers inside a triple-quoted string are not markers`() {
+        assertEquals(listOf(-1, 5), markerLines("let s = $q", "// %%", "(* cell *)", q, "1", "// %%", "2"))
+        // Opened and closed on one line, then a real marker.
+        assertEquals(listOf(-1, 1), markerLines("let s = $q x $q", "// %%", "2"))
+        // Closing on a line with more code.
+        assertEquals(listOf(-1, 3), markerLines("let s = $q", "// %%", "$q + \"a\"", "// %%"))
+    }
+
+    @Test
+    fun `markers inside a block comment are not markers`() {
+        assertEquals(listOf(-1, 5), markerLines("(* notes", "// %%", "(* cell *)", "*)", "1", "// %%", "2"))
+        // Nested comments: the first *) doesn't close the outer one.
+        assertEquals(listOf(-1, 4), markerLines("(* a (* b *)", "// %%", "*)", "1", "// %%"))
+        // One-line comment before code, then a marker.
+        assertEquals(listOf(-1, 1), markerLines("(* note *) let x = 1", "// %%"))
+    }
+
+    @Test
+    fun `a block marker line does not leave the parser inside a comment`() {
+        assertEquals(listOf(0, 2, 4), markerLines("(* cell *)", "1", "(* cell A *)", "2", "// %%", "3"))
+    }
+
+    @Test
+    fun `operator, strings and line comments do not open comments or strings`() {
+        // (*) is the multiplication operator, not a comment start.
+        assertEquals(listOf(-1, 1), markerLines("let ( * ) = (*)", "// %%"))
+        // Comment and triple-quote starts inside a regular string or after //.
+        assertEquals(listOf(-1, 1), markerLines("let s = \"(* \"", "// %%"))
+        assertEquals(listOf(-1, 1), markerLines("let s = @\"a\\\" + \"(*\"", "// %%"))
+        assertEquals(listOf(-1, 1), markerLines("let x = 1 // (* $q", "// %%"))
+        assertEquals(listOf(-1, 1), markerLines("let c = '\"'", "// %%"))
+    }
 }

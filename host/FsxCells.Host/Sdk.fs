@@ -35,13 +35,23 @@ let private dotnet (args: string) : string =
         raise (InvalidOperationException("`dotnet " + args + "` failed: " + error.Trim() + " " + output.Trim()))
     output.Trim()
 
+/// The version in the output of `dotnet --version`: its last non-blank line (a first run can print a welcome banner first).
+let parseSdkVersion (output: string) : string =
+    let lines = output.Split('\n')
+    let mutable version = ""
+    for line in lines do
+        let trimmed = line.Trim()
+        if trimmed.Length > 0 then
+            version <- trimmed
+    version
+
 /// The F# folder of the SDK that `dotnet` picks in the current directory (the script's folder; global.json applies).
 let fsharpDir () : string =
     let overrideDir = Environment.GetEnvironmentVariable FSharpDirVariable
     if not (String.IsNullOrEmpty overrideDir) then
         overrideDir
     else
-        let version = dotnet "--version"
+        let version = parseSdkVersion (dotnet "--version")
         // `--list-sdks` lines look like "10.0.403 [/usr/share/dotnet/sdk]".
         let mutable dir: string = null
         for line in dotnet("--list-sdks").Split('\n') do

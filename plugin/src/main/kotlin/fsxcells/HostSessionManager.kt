@@ -84,12 +84,24 @@ class HostSessionManager(private val project: Project) : Disposable {
      * when the new session replaces one that was stopped for being idle.
      */
     private fun sessionFor(scriptPath: String): Pair<HostSession, String?> {
-        var started = false
-        val session = sessions.compute(scriptPath) { path, existing ->
-            if (existing != null && existing.isAlive) existing else HostSession(path).also { started = true }
-        }!!
-        val idleMinutes = if (started) stoppedIdle.remove(scriptPath) else null
-        return session to idleMinutes?.let(::idleRestartNotice)
+        sessions[scriptPath]?.takeIf { it.isAlive }?.let { return it to null }
+        // Started outside the map: it runs `dotnet --version` and starts a process, and stop() on the UI thread must
+        // not wait for that.
+        val created = HostSession(scriptPath)
+        var winner = created
+        sessions.compute(scriptPath) { _, existing ->
+            if (existing != null && existing.isAlive) existing.also { winner = it } else created
+        }
+        if (winner !== created) {
+            created.dispose()
+            return winner to null
+        }
+        if (disposed && sessions.remove(scriptPath, created)) {
+            // The project closed while this one started: nobody would stop it.
+            created.dispose()
+        }
+        val idleMinutes = stoppedIdle.remove(scriptPath)
+        return created to idleMinutes?.let(::idleRestartNotice)
     }
 
     /**

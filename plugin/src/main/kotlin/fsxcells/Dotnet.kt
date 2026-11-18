@@ -43,14 +43,18 @@ object Dotnet {
     /** The IDE's environment; on macOS this includes what the login shell sets (PATH), unlike System.getenv(). */
     fun environment(): Map<String, String> = EnvironmentUtil.getEnvironmentMap()
 
-    /** [base] with [dotnet]'s folder first on PATH, so the script and the processes it starts use the same dotnet. */
+    /**
+     * [base] with [dotnet]'s folder first on PATH, so the script and the processes it starts use the same dotnet,
+     * and `DOTNET_NOLOGO` set so dotnet doesn't print its first-run banner.
+     */
     fun environment(dotnet: File, base: Map<String, String>): Map<String, String> {
+        val withLogoOff = if (base["DOTNET_NOLOGO"] == null) base + ("DOTNET_NOLOGO" to "1") else base
         val key = base.keys.firstOrNull { it.equals("PATH", ignoreCase = true) } ?: "PATH"
-        val dir = dotnet.absoluteFile.parent ?: return base
+        val dir = dotnet.absoluteFile.parent ?: return withLogoOff
         val path = base[key].orEmpty()
         val entries = path.split(File.pathSeparatorChar).filter { it.isNotEmpty() }
-        if (entries.firstOrNull() == dir) return base
-        return base + (key to (listOf(dir) + entries).joinToString(File.pathSeparator))
+        if (entries.firstOrNull() == dir) return withLogoOff
+        return withLogoOff + (key to (listOf(dir) + entries).joinToString(File.pathSeparator))
     }
 
     /** [configured] (from settings) if set, else the first `dotnet` found by [DotnetLocator]. */

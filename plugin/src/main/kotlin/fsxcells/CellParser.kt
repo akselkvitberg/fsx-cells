@@ -57,9 +57,65 @@ object CellParser {
 
     fun isMarker(line: String): Boolean = markerTitle(line) != null
 
+    /**
+     * The marker lines (index to marker text), leaving out lines that only look like markers because they are inside
+     * a triple-quoted string or a block comment. A heuristic scan, not a lexer.
+     */
+    private fun findMarkers(lines: List<String>): List<Pair<Int, String>> {
+        val markers = mutableListOf<Pair<Int, String>>()
+        var inTriple = false
+        var commentDepth = 0
+        for ((i, line) in lines.withIndex()) {
+            if (!inTriple && commentDepth == 0) {
+                val title = markerTitle(line)
+                // A marker is a whole comment on its own line: it leaves the state as it was.
+                if (title != null) { markers += i to title; continue }
+            }
+            var pos = 0
+            while (pos < line.length) {
+                when {
+                    inTriple -> {
+                        val end = line.indexOf("\"\"\"", pos)
+                        if (end < 0) break
+                        inTriple = false
+                        pos = end + 3
+                    }
+                    commentDepth > 0 -> when {
+                        line.startsWith("(*", pos) -> { commentDepth++; pos += 2 }
+                        line.startsWith("*)", pos) -> { commentDepth--; pos += 2 }
+                        else -> pos++
+                    }
+                    line.startsWith("//", pos) -> break
+                    line.startsWith("\"\"\"", pos) -> { inTriple = true; pos += 3 }
+                    line[pos] == '"' -> pos = endOfString(line, pos, verbatim = pos > 0 && line[pos - 1] == '@')
+                    line.startsWith("(*)", pos) -> pos += 3
+                    line.startsWith("(*", pos) -> { commentDepth++; pos += 2 }
+                    // Character literal like '"'.
+                    line[pos] == '\'' && pos + 2 < line.length && line[pos + 2] == '\'' && line[pos + 1] != '\\' -> pos += 3
+                    else -> pos++
+                }
+            }
+        }
+        return markers
+    }
+
+    /** The index after the "..." string that starts at [start]; the end of the line if it isn't closed there. */
+    private fun endOfString(line: String, start: Int, verbatim: Boolean): Int {
+        var i = start + 1
+        while (i < line.length) {
+            when {
+                !verbatim && line[i] == '\\' -> i += 2
+                line[i] == '"' && verbatim && i + 1 < line.length && line[i + 1] == '"' -> i += 2
+                line[i] == '"' -> return i + 1
+                else -> i++
+            }
+        }
+        return line.length
+    }
+
     /** Splits [lines] into cells. Text before the first marker becomes a cell only if it has non-blank content. */
     fun parse(lines: List<String>): List<Cell> {
-        val markers = lines.indices.mapNotNull { i -> markerTitle(lines[i])?.let { i to it } }
+        val markers = findMarkers(lines)
         val cells = mutableListOf<Cell>()
 
         val firstMarker = markers.firstOrNull()?.first ?: lines.size

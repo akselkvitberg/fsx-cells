@@ -11,6 +11,23 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 - Errors in the plugin can be reported from Rider's error dialog (Report on GitHub): it shows the report, with the
   plugin, Rider, OS and .NET SDK versions and the F# host's last messages, then opens a pre-filled GitHub issue in
   the browser. Nothing is posted until you submit it there.
+- Warnings from the compiler are listed in the output block, not only underlined.
+- `FsxCells.slnx` at the repository root with the host projects.
+
+### Fixed
+
+- A cell that reads stdin (`Console.ReadLine()`) no longer hangs the session or swallows the next request; it
+  reads an empty input.
+- The host process exits when Rider is gone, even if a cell never ends.
+- Closing a file or restarting a session no longer freezes the IDE while a new session is starting.
+- Compile errors are underlined again after Shift+Enter on the last cell and after Ctrl+Shift+Enter.
+- Cell toolbars, run icons and shortcuts no longer appear in diff and preview editors of `.fsx` files.
+- `// %%` and `(* cell *)` lines inside a triple-quoted string or a block comment no longer start a cell.
+- An output block moves to the end of its cell when a new cell marker is added above it.
+- Shift+Enter and Ctrl+Enter in the editor's find field no longer run a cell.
+- Strings containing line breaks no longer break text tables.
+- The host no longer keeps every result in memory for the life of the session.
+- `dotnet`'s first-run banner can no longer be mistaken for the SDK version.
 
 ## [0.6.0] - 2026-11-16
 
