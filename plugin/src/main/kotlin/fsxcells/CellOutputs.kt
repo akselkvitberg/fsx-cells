@@ -264,6 +264,7 @@ object OutputFormatter {
 
     fun format(result: EvalResult): CellOutput {
         val lines = mutableListOf<OutputLine>()
+        result.notice?.lines()?.forEach { lines += OutputLine(it, OutputLineKind.Dim) }
         val stdout = result.stdout.trimEnd('\n', '\r')
         if (stdout.isNotEmpty()) stdout.lines().forEach { lines += OutputLine(it) }
         result.valueText?.lines()?.forEach { lines += OutputLine(it) }

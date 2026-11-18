@@ -10,7 +10,8 @@ class HtmlPageTest {
         valueText: String? = null,
         valueHtml: String? = null,
         error: String? = null,
-    ) = EvalResult(true, stdout, valueText, null, error, 0, emptyList(), valueHtml)
+        notice: String? = null,
+    ) = EvalResult(true, stdout, valueText, null, error, 0, emptyList(), valueHtml, notice = notice)
 
     @Test
     fun `no value html means the text block is used`() {
@@ -22,6 +23,14 @@ class HtmlPageTest {
         assertEquals(
             "<pre>a &lt;b&gt;</pre><div class=\"fc-value\"><table></table></div><pre class=\"fc-error\">boom</pre>",
             HtmlPage.body(result(stdout = "a <b>\n", valueText = "t", valueHtml = "<table></table>", error = "boom")),
+        )
+    }
+
+    @Test
+    fun `a notice comes before the output`() {
+        assertEquals(
+            "<pre class=\"fc-notice\">New &amp; old</pre><pre>hi</pre><div class=\"fc-value\"><table></table></div>",
+            HtmlPage.body(result(stdout = "hi\n", valueText = "t", valueHtml = "<table></table>", notice = "New & old")),
         )
     }
 }
