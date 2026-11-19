@@ -19,7 +19,6 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import java.awt.event.MouseWheelEvent
 import java.awt.datatransfer.StringSelection
 import javax.swing.JMenuItem
 import javax.swing.JPanel
@@ -149,9 +148,12 @@ class OutputBlock(
         scrollPane.border = JBUI.Borders.empty()
         scrollPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
         scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
-        // We handle the wheel ourselves so it falls through to the editor at the top/bottom of the output.
-        scrollPane.isWheelScrollingEnabled = false
-        scrollPane.addMouseWheelListener(::onMouseWheel)
+        // Without their own cursor the scroll bars show the editor's text cursor.
+        scrollPane.verticalScrollBar.cursor = Cursor.getDefaultCursor()
+        scrollPane.horizontalScrollBar.cursor = Cursor.getDefaultCursor()
+        // The wheel is left to JBScrollPane: it scrolls the output while it can and passes the event on to the editor's
+        // scroll pane at the output's top or bottom. (Turning wheel scrolling off makes it pass on every event, so the
+        // editor scrolled along with the output.)
 
         summaryLabel.font = font
         summaryLabel.border = JBUI.Borders.empty(1, 8, 2, 8)
@@ -382,22 +384,6 @@ class OutputBlock(
         val visibleLines = minOf(content.lines.size, MAX_VISIBLE_LINES)
         val height = visibleLines * lineHeight + textInsets.top + textInsets.bottom + hBar + summaryHeight
         return Dimension(width + JBUI.scale(3), height)
-    }
-
-    private fun onMouseWheel(e: MouseWheelEvent) {
-        val horizontal = e.isShiftDown
-        val bar = if (horizontal) scrollPane.horizontalScrollBar else scrollPane.verticalScrollBar
-        val delta = (e.preciseWheelRotation * textPane.getFontMetrics(textPane.font).height * 3).toInt()
-        val canScroll = bar.isVisible && delta != 0 &&
-            ((delta < 0 && bar.value > bar.minimum) || (delta > 0 && bar.value + bar.visibleAmount < bar.maximum))
-        if (canScroll) {
-            bar.value += delta
-            e.consume()
-        } else {
-            // Let the editor scroll.
-            val target = editor.scrollPane
-            target.dispatchEvent(SwingUtilities.convertMouseEvent(e.component, e, target))
-        }
     }
 
     private fun popupMenu() = JPopupMenu().apply {
