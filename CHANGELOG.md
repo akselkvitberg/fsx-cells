@@ -27,6 +27,8 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 
 ### Fixed
 
+- Scrolling an output with the mouse wheel no longer scrolls the editor at the same time; the editor scrolls once the
+  output is at its top or bottom. The output's scroll bars show the normal pointer instead of the text cursor.
 - A lazy sequence shown as a table is enumerated once, not once for the text and again for the HTML; a sequence with
   side effects no longer runs them twice, and both forms show the same rows.
 - A cell that reads stdin (`Console.ReadLine()`) no longer hangs the session or swallows the next request; it
