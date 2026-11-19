@@ -27,6 +27,8 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 
 ### Fixed
 
+- A lazy sequence shown as a table is enumerated once, not once for the text and again for the HTML; a sequence with
+  side effects no longer runs them twice, and both forms show the same rows.
 - A cell that reads stdin (`Console.ReadLine()`) no longer hangs the session or swallows the next request; it
   reads an empty input.
 - The host process exits when Rider is gone, even if a cell never ends.

@@ -332,11 +332,9 @@ type Session() =
                                 | Ok(text, html) -> true, Some text, Some html, Some(formatTypeName v), None
                                 | Error message -> false, None, None, Some(formatTypeName v), Some message
                             | None ->
-                                match Formatting.formatValue v.ReflectionValue v.ReflectionType with
-                                | Some text ->
-                                    let html = Formatting.formatHtml v.ReflectionValue v.ReflectionType
-                                    true, Some text, html, Some(formatTypeName v), None
-                                | None -> true, None, None, None, None
+                                match Formatting.formatValueAndHtml v.ReflectionValue v.ReflectionType with
+                                | Some text, html -> true, Some text, html, Some(formatTypeName v), None
+                                | None, _ -> true, None, None, None, None
                         with e ->
                             false, None, None, Some(formatTypeName v), Some("Formatting the value failed: " + formatException path e)
                     | Choice2Of2 _ when interrupted -> false, None, None, None, Some "Interrupted."
