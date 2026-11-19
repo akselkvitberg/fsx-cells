@@ -81,8 +81,10 @@ To try a build of your own, install the zip in Rider with Settings > Plugins > â
 `host/smoke-test.sh` publishes the host and runs a few cells through it with the installed SDK's F# compiler, the way
 the plugin does (most of the host's unit tests run in-process with their own compiler).
 
-CI builds and tests on Linux, Windows and macOS. A weekly workflow (`Newest .NET SDK`) runs the host tests and the
-smoke test against the newest .NET SDK, previews included, to catch an SDK whose F# compiler the host can't use.
+CI builds and tests on Linux for pushes and pull requests. Release tags, and runs started by hand from the Actions
+tab, also build and test on Windows and macOS, and a release is only published when all three pass. A weekly workflow
+(`Newest .NET SDK`) runs the host tests and the smoke test against the newest .NET SDK, previews included, to catch an
+SDK whose F# compiler the host can't use.
 
 ## F# sessions
 

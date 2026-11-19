@@ -1,5 +1,6 @@
-# Builds and tests the host and the plugin on Linux, Windows and macOS, and runs the Plugin Verifier, on every push and
-# pull request.
+# Builds and tests the host and the plugin, and runs the Plugin Verifier, on every push and pull request. Pushes to main
+# and pull requests build on Linux only; release tags and manual runs (Actions > Build > Run workflow) also build on
+# Windows and macOS, and a release is only published when all three pass.
 # Pushing a tag like v0.2.0 also creates a GitHub release with the plugin zip attached and, when the PUBLISH_TOKEN
 # secret is set, publishes the plugin to the JetBrains Marketplace (v0.3.0-eap.1 goes to the "eap" channel).
 name: Build
@@ -16,12 +17,14 @@ permissions:
 
 jobs:
   build:
-    # Finding dotnet, starting processes and paths differ per OS, so build and test on all three. The zip, the
+    # Finding dotnet, starting processes and paths differ per OS, so releases are built and tested on all three, as a
+    # compatibility check before publishing (publish and release need every leg). Day-to-day runs use Linux only, to
+    # keep Actions minutes down; run the workflow by hand to check Windows and macOS before tagging. The zip, the
     # Plugin Verifier and the release use the Linux build.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON((startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","windows-latest","macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
