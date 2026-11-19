@@ -4,6 +4,8 @@ All notable changes to fsx-cells are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-19
+
 ### Added
 
 - An F# session that hasn't run a cell for 30 minutes is stopped to free its memory; the next cell starts a new one
@@ -72,5 +74,6 @@ up to now.
 - Dates and times are shown as ISO 8601 (`1969-07-20`, `1969-07-20 20:17:40`), whatever the culture, on their own
   and in tables and objects.
 
-[Unreleased]: https://github.com/akselkvitberg/fsx-cells/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/akselkvitberg/fsx-cells/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/akselkvitberg/fsx-cells/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/akselkvitberg/fsx-cells/compare/v0.5.0...v0.6.0

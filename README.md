@@ -189,12 +189,12 @@ top. Lines that use Polyglot-only APIs such as `display` or `Formatter` are list
 The `Build` workflow builds, tests and runs the JetBrains Plugin Verifier on every push. To make a release:
 
 1. Move the `Unreleased` notes in [CHANGELOG.md](CHANGELOG.md) under a version heading (or run
-   `./gradlew patchChangelog -Pversion=0.7.0` in `plugin/`) and commit.
+   `./gradlew patchChangelog -Pversion=0.8.0` in `plugin/`) and commit.
 2. Push a version tag:
 
    ```bash
-   git tag v0.7.0
-   git push origin v0.7.0
+   git tag v0.8.0
+   git push origin v0.8.0
    ```
 
 The workflow builds the plugin with that version, attaches the zip to a GitHub release and, when the
