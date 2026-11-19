@@ -636,6 +636,30 @@ let formatHtml (value: obj) (ty: Type) : string option =
         | PlainObject -> Some(objectHtml 0 true value)
         | _ -> None
 
+/// The text and the HTML for a cell's value, like formatValue and formatHtml. A dictionary or sequence shown as a
+/// table is read once and both forms are built from the same items, so a lazy sequence is not enumerated twice (once
+/// per form) and the two forms show the same rows.
+let formatValueAndHtml (value: obj) (ty: Type) : string option * string option =
+    let staticTy = if isNull ty then (if isNull value then typeof<obj> else value.GetType()) else ty
+    let table =
+        if isNull value || staticTy = typeof<unit> || staticTy = typeof<Void> || (tryCustom value).IsSome then
+            None
+        else
+            match kindOf value with
+            | Dictionary ->
+                match takeItems (listLimit ()) (value :?> IEnumerable) with
+                | [||], _ -> None
+                | pairs, more -> Some(joinLines (dictionaryTable 0 pairs more), dictionaryHtml 0 pairs more)
+            | Sequence ->
+                tryTableItems staticTy (value :?> IEnumerable)
+                |> Option.map (fun (items, more) -> joinLines (sequenceTable 0 items more), sequenceHtml 0 items more)
+            | _ -> None
+    match table with
+    | Some(text, html) -> Some text, Some html
+    // Not a table: tryTableItems only reads a lazy sequence when its element type makes it a table, so neither call
+    // below enumerates one a second time (formatA reads it once, as fsi would).
+    | None -> formatValue value ty, formatHtml value ty
+
 // ---------------------------------------------------------------------------------------------------------------
 // Display annotations: `// %% title [image]` and `[html]` show the cell's value as an image or as raw HTML.
 

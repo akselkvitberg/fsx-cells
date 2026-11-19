@@ -216,6 +216,24 @@ module ObjectFormattingTests =
     let html (v: 'T) = Formatting.formatHtml (box v) typeof<'T>
 
     [<Fact>]
+    let ``a lazy sequence of records is read once for both text and html`` () =
+        let reads = ref 0
+        let rows = seq { reads.Value <- reads.Value + 1; yield! people }
+        let text, h = Formatting.formatValueAndHtml (box rows) typeof<seq<Person>>
+        Assert.Equal(1, reads.Value)
+        Assert.Equal(fmt (List.ofSeq people), text)
+        Assert.Equal(html (List.ofSeq people), h)
+
+    [<Fact>]
+    let ``a lazy sequence that is not a table is read once`` () =
+        let reads = ref 0
+        let numbers = seq { reads.Value <- reads.Value + 1; yield! [ 1; 2; 3 ] }
+        let text, h = Formatting.formatValueAndHtml (box numbers) typeof<seq<int>>
+        Assert.Equal(1, reads.Value)
+        Assert.True(text.IsSome)
+        Assert.Equal(None, h)
+
+    [<Fact>]
     let ``html for a list of records is a table`` () =
         Assert.Equal(
             Some(
